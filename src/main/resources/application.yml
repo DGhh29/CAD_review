@@ -1,0 +1,33 @@
+server:
+  port: 8090
+
+spring:
+  ai:
+    chat:
+      client:
+        enabled: false
+    openai:
+      api-key: ${OPENAI_API_KEY:sk-placeholder}
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+      chat:
+        options:
+          model: gpt-4o
+          temperature: 0.2
+          max-tokens: 2048
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY:sk-ant-placeholder}
+      chat:
+        options:
+          model: claude-sonnet-4-6
+          temperature: 0.2
+          max-tokens: 2048
+
+cad-review:
+  llm:
+    default-provider: OPENAI
+    timeout-ms: 30000
+    retry:
+      max-attempts: 1
+      backoff-ms: 1000
+  skills:
+    paths: classpath:skills/cad-fire-zone-review/
