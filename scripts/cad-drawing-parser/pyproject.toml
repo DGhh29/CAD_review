@@ -1,0 +1,21 @@
+[project]
+name = "cad-drawing-parser"
+version = "0.1.0"
+description = "High-efficiency CAD drawing parser for DXF and DWG-to-DXF workflows"
+requires-python = ">=3.10"
+dependencies = [
+    "ezdxf>=1.4.0,<2.0",
+    "orjson>=3.10.0",
+]
+
+[project.optional-dependencies]
+geometry = [
+    "shapely>=2.0.0",
+]
+
+[project.scripts]
+cad-parse = "cad_drawing_parser.cli:main"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

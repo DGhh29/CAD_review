@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "cad-review.parser")
 public class CadParserProperties {
     private String pythonPath = "python";
-    private String scriptPath = "D:/workspace/oDev/cad-drawing-parser/parse_cad.py";
+    private String scriptPath = "scripts/cad-drawing-parser/parse_cad.py";
     private int timeoutSeconds = 120;
     private int maxEntities = 10000;
     private int maxTexts = 2000;

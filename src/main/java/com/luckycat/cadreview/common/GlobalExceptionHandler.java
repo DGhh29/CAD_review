@@ -1,6 +1,7 @@
 package com.luckycat.cadreview.common;
 
 import com.luckycat.cadreview.service.ReviewMockService;
+import com.luckycat.cadreview.agent.StructuredOutputSupport;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -32,6 +33,14 @@ public class GlobalExceptionHandler {
         log.error("Structured output failed", ex);
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                 .body(ApiResult.error(50201, "结构化输出解析失败", ex.getRawContent()));
+    }
+
+    @ExceptionHandler(StructuredOutputSupport.StructuredOutputException.class)
+    public ResponseEntity<ApiResult<String>> handleAgentStructuredOutput(
+            StructuredOutputSupport.StructuredOutputException ex) {
+        log.error("Agent structured output failed: {}", ex.getOperation(), ex);
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(ApiResult.error(50202, "Agent 结构化输出解析失败", ex.getRawContent()));
     }
 
     @ExceptionHandler(com.luckycat.cadreview.parser.CadParseException.class)

@@ -2,6 +2,10 @@ server:
   port: 8090
 
 spring:
+  datasource:
+    url: jdbc:postgresql://${PG_HOST:localhost}:${PG_PORT:5432}/${PG_DATABASE:cad_review_vector}
+    username: ${PG_USERNAME:postgres}
+    password: ${PG_PASSWORD:postgres}
   servlet:
     multipart:
       max-file-size: 100MB
@@ -10,16 +14,24 @@ spring:
     chat:
       client:
         enabled: false
+    vectorstore:
+      pgvector:
+        index-type: HNSW
+        distance-type: COSINE_DISTANCE
+        dimensions: ${EMBEDDING_DIMENSIONS:1536}
+        initialize-schema: true
     openai:
-      api-key: ${OPENAI_API_KEY:sk-placeholder}
-      base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+      api-key: ${OPENAI_API_KEY:sk-dd7d9c15917e8df65dd420b8a0e73204}
+      base-url: ${OPENAI_BASE_URL:https://ai.huashidai1.com/v1}
       chat:
         options:
           model: gpt-4o
-          temperature: 0.2
-          max-tokens: 2048
+      embedding:
+        options:
+          model: ${EMBEDDING_MODEL:text-embedding-3-small}
     anthropic:
       api-key: ${ANTHROPIC_API_KEY:sk-ant-placeholder}
+      base-url: ${ANTHROPIC_BASE_URL:https://ai.huashidai1.com}
       chat:
         options:
           model: claude-sonnet-4-6
@@ -37,9 +49,55 @@ cad-review:
     paths: classpath:skills/cad-fire-zone-review/
   parser:
     python-path: python
-    script-path: D:/workspace/oDev/cad-drawing-parser/parse_cad.py
+    script-path: scripts/cad-drawing-parser/parse_cad.py
     timeout-seconds: 120
     max-entities: 10000
     max-texts: 2000
     dwg-converter: ""
     direct-dwg-enabled: false
+  agent:
+    max-review-tasks: 10
+    max-review-entities: 800
+    total-timeout-seconds: 120
+    unanchored-pending-threshold: 0.5
+    dispatcher:
+      timeout-seconds: 30
+      max-attempts: 1
+    reviewer:
+      core-pool-size: 3
+      parallel-max: 5
+      queue-capacity: 10
+      timeout-seconds: 30
+      max-attempts: 1
+    summarizer:
+      reserve-seconds: 30
+      verification-enabled: false
+      verify-provider: ANTHROPIC
+      verify-confidence-threshold: 0.7
+      max-attempts: 1
+      timeout-seconds: 30
+    rules:
+      - id: FIRE_ZONE_AREA_001
+        clause-id: GB50016-5.3.1
+        title: 防火分区面积
+        scope: 图层或文本包含“消防”“防火分区”“房间”，以及 HATCH/POLYLINE 边界实体
+        prompt-fragment: >-
+          审核防火分区范围、面积标注和边界闭合线索。若缺少明确面积或边界证据，
+          不要臆测结论，应输出 PENDING_REVIEW。
+        version: "2026-demo"
+      - id: EVAC_WIDTH_001
+        clause-id: GB50016-5.5
+        title: 疏散通道净宽
+        scope: 图层或文本包含“疏散”“楼梯”“通道”，以及 DIMENSION 标注
+        prompt-fragment: >-
+          审核疏散通道、楼梯和出口净宽。优先引用 DIMENSION 标注和相关几何实体；
+          若无法确认净宽，输出 PENDING_REVIEW。
+        version: "2026-demo"
+      - id: FIRE_FACILITY_001
+        clause-id: GB50016-8
+        title: 消防设施布置
+        scope: 图层或块名包含“消防”“消火栓”“喷淋”“报警”
+        prompt-fragment: >-
+          审核消防设施图元、图层和文字线索是否存在明显缺失或冲突。
+          当前 demo 只做证据链识别，不做完整专业合规判定。
+        version: "2026-demo"

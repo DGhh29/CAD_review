@@ -28,4 +28,16 @@ public class Finding {
     @DecimalMin("0.0")
     @DecimalMax("1.0")
     private Double confidence;
+
+    private String ruleId;
+    private String ruleVersion;
+    private String areaId;
+
+    @Builder.Default
+    private List<String> layerNames = new ArrayList<>();
+
+    private List<Double> boundingBox;
+    private String evidenceText;
+    private String source;
+    private Verification verification;
 }
