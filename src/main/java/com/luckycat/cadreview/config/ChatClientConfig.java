@@ -1,11 +1,13 @@
 package com.luckycat.cadreview.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springaicommunity.agent.tools.SkillsTool;
 import org.springframework.ai.anthropic.AnthropicChatModel;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.Resource;
@@ -14,6 +16,12 @@ import java.util.List;
 
 @Configuration
 public class ChatClientConfig {
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ObjectMapper objectMapper() {
+        return new ObjectMapper();
+    }
 
     @Bean
     public ToolCallback skillsTool(
