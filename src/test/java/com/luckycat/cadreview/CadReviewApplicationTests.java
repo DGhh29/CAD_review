@@ -1,5 +1,6 @@
 package com.luckycat.cadreview;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
@@ -22,17 +23,13 @@ import static org.mockito.Mockito.when;
         webEnvironment = SpringBootTest.WebEnvironment.NONE,
         properties = {
                 "spring.autoconfigure.exclude=" +
-                        "org.springframework.ai.retry.autoconfigure.SpringAiRetryAutoConfiguration," +
                         "org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration," +
                         "org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration," +
                         "org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration," +
                         "org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration," +
                         "org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration," +
                         "org.springframework.ai.model.openai.autoconfigure.OpenAiModerationAutoConfiguration," +
-                        "org.springframework.ai.model.anthropic.autoconfigure.AnthropicChatAutoConfiguration," +
-                        "org.springframework.boot.restclient.autoconfigure.RestClientAutoConfiguration," +
-                        "org.springframework.boot.webclient.autoconfigure.WebClientAutoConfiguration," +
-                        "org.springframework.boot.http.client.autoconfigure.HttpClientAutoConfiguration",
+                        "org.springframework.ai.model.anthropic.autoconfigure.AnthropicChatAutoConfiguration",
                 "spring.main.allow-bean-definition-overriding=true"
         }
 )
@@ -85,6 +82,11 @@ class CadReviewApplicationTests {
             return org.springaicommunity.agent.tools.SkillsTool.builder()
                     .addSkillsResources(skillPaths)
                     .build();
+        }
+
+        @Bean
+        ObjectMapper objectMapper() {
+            return new ObjectMapper();
         }
     }
 
