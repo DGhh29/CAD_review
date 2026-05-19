@@ -1,5 +1,6 @@
 package com.luckycat.cadreview.common;
 
+import com.luckycat.cadreview.service.ReviewMockService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -23,6 +24,14 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiResult<Void>> handleIllegalArg(IllegalArgumentException ex) {
         return ResponseEntity.badRequest().body(ApiResult.error(40002, ex.getMessage()));
+    }
+
+    @ExceptionHandler(ReviewMockService.StructuredOutputException.class)
+    public ResponseEntity<ApiResult<String>> handleStructuredOutput(
+            ReviewMockService.StructuredOutputException ex) {
+        log.error("Structured output failed", ex);
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(ApiResult.error(50201, "结构化输出解析失败", ex.getRawContent()));
     }
 
     @ExceptionHandler(Exception.class)
