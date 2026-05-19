@@ -13,14 +13,14 @@ public class ApiResult<T> {
     private T data;
 
     public static <T> ApiResult<T> ok(T data) {
-        return new ApiResult<>(0, "success", data);
+        return new ApiResult<T>(0, "success", data);
     }
 
     public static <T> ApiResult<T> error(int code, String msg) {
-        return new ApiResult<>(code, msg, null);
+        return new ApiResult<T>(code, msg, null);
     }
 
     public static <T> ApiResult<T> error(int code, String msg, T data) {
-        return new ApiResult<>(code, msg, data);
+        return new ApiResult<T>(code, msg, data);
     }
 }

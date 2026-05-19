@@ -34,6 +34,13 @@ public class GlobalExceptionHandler {
                 .body(ApiResult.error(50201, "结构化输出解析失败", ex.getRawContent()));
     }
 
+    @ExceptionHandler(com.luckycat.cadreview.parser.CadParseException.class)
+    public ResponseEntity<ApiResult<Void>> handleCadParse(com.luckycat.cadreview.parser.CadParseException ex) {
+        log.error("CAD parse failed", ex);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiResult.error(50301, ex.getMessage()));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResult<Void>> handleGeneral(Exception ex) {
         log.error("Unhandled exception", ex);

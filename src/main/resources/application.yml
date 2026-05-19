@@ -2,6 +2,10 @@ server:
   port: 8090
 
 spring:
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 100MB
   ai:
     chat:
       client:
@@ -31,3 +35,11 @@ cad-review:
       backoff-ms: 1000
   skills:
     paths: classpath:skills/cad-fire-zone-review/
+  parser:
+    python-path: python
+    script-path: D:/workspace/oDev/cad-drawing-parser/parse_cad.py
+    timeout-seconds: 120
+    max-entities: 10000
+    max-texts: 2000
+    dwg-converter: ""
+    direct-dwg-enabled: false
