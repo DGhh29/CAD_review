@@ -103,7 +103,7 @@ def _parse_dxf(
         if bbox.valid:
             record["bbox"] = bbox.to_dict()
             global_bbox.include_bounds(bbox)
-        if record.get("text") and len(texts) < config.max_texts:
+        if record.get("text") and _within_limit(texts, config.max_texts):
             texts.append(
                 {
                     "text": record["text"],
@@ -112,11 +112,11 @@ def _parse_dxf(
                     "point": record.get("point") or record.get("insert"),
                 }
             )
-        if entity_type == "DIMENSION" and len(dimensions) < config.max_texts:
+        if entity_type == "DIMENSION" and _within_limit(dimensions, config.max_texts):
             dimensions.append(_extract_dimension(entity, record))
         if entity_type == "INSERT" and record.get("block"):
             block_counter[str(record["block"])] += 1
-        if config.include_entities and len(entities) < config.max_entities:
+        if config.include_entities and _within_limit(entities, config.max_entities):
             entities.append(record)
 
     layers = _extract_layers(doc, layer_counter)
@@ -145,7 +145,7 @@ def _parse_dxf(
         "summary": {
             "entity_count": entity_count,
             "captured_entity_count": len(entities),
-            "entity_truncated": entity_count > len(entities),
+            "entity_truncated": config.include_entities and config.max_entities > 0 and entity_count > len(entities),
             "layer_count": len(layers),
             "block_count": len(blocks),
             "text_count": len(texts),
@@ -292,7 +292,7 @@ def _extract_layers(doc: Any, layer_counter: Counter[str]) -> list[dict[str, Any
 def _extract_blocks(doc: Any, block_counter: Counter[str], config: ParseConfig) -> list[dict[str, Any]]:
     blocks = []
     for block in doc.blocks:
-        if len(blocks) >= config.max_blocks:
+        if config.max_blocks > 0 and len(blocks) >= config.max_blocks:
             break
         try:
             entity_count = sum(1 for _ in block)
@@ -349,6 +349,10 @@ def _build_audit_pack(
             "再结合规范规则库，不要只凭图层名称下结论。"
         ),
     }
+
+
+def _within_limit(items: list[Any], limit: int) -> bool:
+    return limit <= 0 or len(items) < limit
 
 
 def _classify_semantic(record: dict[str, Any]) -> str | None:

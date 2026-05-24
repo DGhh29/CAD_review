@@ -26,11 +26,24 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+/**
+ * {@link ReviewerAgent} 单元测试。
+ *
+ * <p>Reviewer 负责单条任务的实际审核：拿到任务、相关 IR 切片与对应规则后，
+ * 调 LLM 让它给出 Finding 列表（结论 + 风险等级 + 证据 + 引用条款）。
+ *
+ * <p>本测试聚焦在<b>结构化输出解析</b>这一关键边界：当 LLM 给出符合 schema 的 JSON 时，
+ * Reviewer 必须把字段映射到 {@link Finding} 上，并自动补齐
+ * 任务上下文里才有的元数据（ruleId、ruleVersion、source=REVIEWER_AGENT）。
+ *
+ * <p>更复杂的失败/重试/降级路径由 ReviewMockServiceTest 与 AgentOrchestratorTest 覆盖。
+ */
 class ReviewerAgentTest {
 
     private ReviewerAgent service;
     private ChatModel mockChatModel;
 
+    /** 装配最小可用 ReviewerAgent：mock ChatModel + 单条规则。 */
     @BeforeEach
     void setUp() {
         mockChatModel = mock(ChatModel.class);
@@ -60,8 +73,15 @@ class ReviewerAgentTest {
                 new StructuredOutputSupport(new ObjectMapper()));
     }
 
+    /**
+     * happy path：LLM 返回一条 FAIL/HIGH 的 finding，Reviewer 应当：
+     * 1) 把 verdict / riskLevel 字符串解成枚举；
+     * 2) 把任务侧的 ruleId / ruleVersion 注入回 Finding；
+     * 3) 把 source 标记为 REVIEWER_AGENT —— 用于在汇总阶段区分来源。
+     */
     @Test
     void shouldParseAndNormalizeReviewerFindings() {
+        // 模拟 LLM 给出一条规范的 finding
         mockModelResponse("""
                 {
                   "findings": [
@@ -87,6 +107,7 @@ class ReviewerAgentTest {
         assertThat(findings.get(0).getSource()).isEqualTo("REVIEWER_AGENT");
     }
 
+    /** 模拟 LLM 真实回包：带 token usage 元数据 + 一条 assistant 消息。 */
     private void mockModelResponse(String content) {
         Usage usage = mock(Usage.class);
         when(usage.getPromptTokens()).thenReturn(100);
@@ -104,6 +125,7 @@ class ReviewerAgentTest {
         when(mockChatModel.call(any(org.springframework.ai.chat.prompt.Prompt.class))).thenReturn(chatResponse);
     }
 
+    /** 单条任务样本：HIGH 优先级，绑定 RULE-1，挂在 FIRE 图层。 */
     private ReviewTask task() {
         return ReviewTask.builder()
                 .taskId("TASK-001")
@@ -115,6 +137,7 @@ class ReviewerAgentTest {
                 .build();
     }
 
+    /** 与 task() 相对应的规则：版本 v1，会被回写到 Finding.ruleVersion 上。 */
     private ReviewRule rule() {
         return ReviewRule.builder()
                 .id("RULE-1")

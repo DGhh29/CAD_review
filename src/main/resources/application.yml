@@ -22,10 +22,10 @@ spring:
         initialize-schema: true
     openai:
       api-key: ${OPENAI_API_KEY:sk-dd7d9c15917e8df65dd420b8a0e73204}
-      base-url: ${OPENAI_BASE_URL:https://ai.huashidai1.com/v1}
+      base-url: ${OPENAI_BASE_URL:https://ai.huashidai1.com}
       chat:
         options:
-          model: gpt-4o
+          model: gpt-5.5
       embedding:
         options:
           model: ${EMBEDDING_MODEL:text-embedding-3-small}
@@ -41,6 +41,12 @@ spring:
 cad-review:
   llm:
     default-provider: OPENAI
+    lightweight:
+      provider: OPENAI
+      max-input-tokens: 12000
+    deep:
+      provider: OPENAI
+      max-input-tokens: 32000
     timeout-ms: 30000
     retry:
       max-attempts: 1
@@ -48,26 +54,39 @@ cad-review:
   skills:
     paths: classpath:skills/cad-fire-zone-review/
   parser:
-    python-path: python
-    script-path: scripts/cad-drawing-parser/parse_cad.py
+    http-url: ${CAD_PARSER_URL:http://localhost:8765}
     timeout-seconds: 120
-    max-entities: 10000
-    max-texts: 2000
-    dwg-converter: ""
-    direct-dwg-enabled: false
+    max-entities: 0
+    max-texts: 0
+  review-run:
+    initialize-schema: true
   agent:
-    max-review-tasks: 10
+    max-review-tasks: 20
     max-review-entities: 800
-    total-timeout-seconds: 120
+    total-timeout-seconds: 600
+    max-dispatch-rounds: 5
     unanchored-pending-threshold: 0.5
+    runner:
+      core-pool-size: 1
+      parallel-max: 2
+      queue-capacity: 20
+    context-budget:
+      dispatcher-max-chars: 60000
+      pre-cleaner-max-chars: 50000
+      reviewer-max-chars: 50000
+      summarizer-max-chars: 30000
+      first-pass-array-items: 80
+      second-pass-array-items: 24
+      final-pass-array-items: 8
+      max-text-chars: 1600
     dispatcher:
-      timeout-seconds: 30
+      timeout-seconds: 300
       max-attempts: 1
     reviewer:
-      core-pool-size: 3
-      parallel-max: 5
+      core-pool-size: 1
+      parallel-max: 1
       queue-capacity: 10
-      timeout-seconds: 30
+      timeout-seconds: 120
       max-attempts: 1
     summarizer:
       reserve-seconds: 30
@@ -101,3 +120,65 @@ cad-review:
           审核消防设施图元、图层和文字线索是否存在明显缺失或冲突。
           当前 demo 只做证据链识别，不做完整专业合规判定。
         version: "2026-demo"
+      - id: R-RD-001
+        clause-id: GB50187-2012-6.4.2
+        title: 厂区主要道路宽度
+        scope: 图层或文本包含“道路”“内部道路”“车道”“消防车道”，以及道路边线、道路宽度尺寸标注和道路相关文字。
+        prompt-fragment: >-
+          审核厂区内主要道路宽度是否存在可追溯证据。依据 GB 50187-2012 第 6.4.2 条，
+          厂区内主要道路宽度不应小于 4m。优先引用道路图层、DIMENSION/PUB_DIM 尺寸标注和文字说明；
+          只有在证据明确显示宽度小于 4m 时输出 FAIL，明确满足时输出 PASS；无法确认宽度时输出 PENDING_REVIEW。
+        version: "seed-2025-v1"
+      - id: R-RD-002
+        clause-id: GB50187-2012-6.4.2
+        title: 厂区道路转弯半径
+        scope: 图层或文本包含“道路”“内部道路”“车道”“转弯半径”“R=”，以及道路转角、圆弧、半径标注。
+        prompt-fragment: >-
+          审核厂区道路转弯半径是否存在可追溯证据。依据 GB 50187-2012 第 6.4.2 条，
+          道路转弯半径不应小于 6m。优先引用 ARC 圆弧、半径尺寸、R= 文本和道路转角实体；
+          只有在证据明确显示半径小于 6m 时输出 FAIL，明确满足时输出 PASS；无法确认半径时输出 PENDING_REVIEW。
+        version: "seed-2025-v1"
+      - id: R-PRK-001
+        clause-id: NNZRZY-2015-GUIDE-12
+        title: 工业厂房机动车停车配建
+        scope: 图层或文本包含“车位”“停车”“机动车”，以及停车位线、车位编号、技术经济指标表中的建筑面积和车位数量。
+        prompt-fragment: >-
+          审核工业厂房机动车停车配建数量。依据南宁市建筑工程规划指引第十二条，
+          每 100 平方米建筑面积不少于 0.5 个机动车车位。优先引用指标表、车位统计文字和车位图元数量；
+          若缺少建筑面积或机动车车位总数，输出 PENDING_REVIEW，不得凭零散车位线推断最终结论。
+        version: "seed-2025-v1"
+      - id: R-PRK-002
+        clause-id: JGJ100-2015-4.1.3
+        title: 无障碍停车位配建
+        scope: 图层或文本包含“无障碍”“车位”“停车”，以及无障碍车位标识、停车位统计表、机动车车位总数。
+        prompt-fragment: >-
+          审核无障碍停车位数量。依据 JGJ 100-2015 第 4.1.3 条，无障碍停车位数量不应少于停车总数的 2%，
+          且不应少于 1 个。优先引用“无障碍”文字、车位统计表和车位标识；缺少无障碍车位数或停车总数时输出 PENDING_REVIEW。
+        version: "seed-2025-v1"
+      - id: R-PRK-003
+        clause-id: NNZRZY-2015-GUIDE-12
+        title: 工业厂房非机动车停车配建
+        scope: 图层或文本包含“非机动车”“自行车”“停车”，以及非机动车停车区、技术经济指标表中的建筑面积和非机动车车位数量。
+        prompt-fragment: >-
+          审核工业厂房非机动车停车配建数量。依据南宁市建筑工程规划指引第十二条，
+          每 100 平方米建筑面积不少于 1.0 个非机动车车位。优先引用指标表、非机动车停车区文字和数量统计；
+          缺少建筑面积或非机动车车位总数时输出 PENDING_REVIEW。
+        version: "seed-2025-v1"
+      - id: R-VRT-001
+        clause-id: NNZRZY-2018-SUPPL-6
+        title: 竖向设计与场地高差专项方案
+        scope: 图层或文本包含“竖向”“高差”“标高”“场地”，以及标高文字、DIM_ELEV 标高符号和相关尺寸。
+        prompt-fragment: >-
+          审核场地竖向高差是否触发专项方案要求。依据南宁市建筑工程规划指引补充规定第六条，
+          场地竖向高差超过 5m 时，应在施工图设计阶段提交专项施工方案。优先引用标高文字、DIM_ELEV 标高点和高差说明；
+          只有在最大最小标高证据明确且高差超过 5m 时输出 FAIL；缺少完整标高证据时输出 PENDING_REVIEW。
+        version: "seed-2025-v1"
+      - id: R-SUN-001
+        clause-id: NNZRZY-2018-SUPPL-7
+        title: 日照分析报告
+        scope: 文本或附件信息包含“日照分析”“日照报告”“日照承诺书”，或图纸周边用地说明涉及居住、学校等日照敏感用地。
+        prompt-fragment: >-
+          审核是否存在日照分析报告或日照分析责任承诺书线索。依据南宁市建筑工程规划指引补充规定第七条，
+          工业用地建筑应提交日照分析报告；周边有居住、学校等日照敏感用地时按强制项处理，否则按建议项处理。
+          仅当图纸文字、附件清单或任务上下文明确提供报告/承诺书证据时输出 PASS；无法确认时输出 PENDING_REVIEW，并在说明中标注建议项或强制项依据。
+        version: "seed-2025-v1"

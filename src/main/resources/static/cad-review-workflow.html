@@ -1,0 +1,1210 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CAD 多 Agent 审图流程跟踪</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --panel-soft: #f9fafc;
+      --text: #1e293b;
+      --muted: #64748b;
+      --line: #d7dde8;
+      --blue: #2563eb;
+      --green: #059669;
+      --amber: #d97706;
+      --red: #dc2626;
+      --violet: #7c3aed;
+      --cyan: #0891b2;
+      --shadow: 0 12px 30px rgba(15, 23, 42, .08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      letter-spacing: 0;
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    button {
+      border: 0;
+      cursor: pointer;
+    }
+
+    .shell {
+      width: min(1480px, calc(100vw - 40px));
+      margin: 0 auto;
+      padding: 22px 0 36px;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: minmax(280px, 1fr) auto;
+      align-items: end;
+      gap: 20px;
+      padding-bottom: 18px;
+    }
+
+    .title-block h1 {
+      margin: 0 0 8px;
+      font-size: 26px;
+      line-height: 1.18;
+      font-weight: 760;
+    }
+
+    .title-block p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .endpoint-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+      box-shadow: var(--shadow);
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 99px;
+      background: var(--green);
+      flex: 0 0 auto;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 360px minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .panel-header h2 {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.3;
+      font-weight: 720;
+    }
+
+    .panel-header span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .panel-body {
+      padding: 16px;
+    }
+
+    .stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    .field {
+      display: grid;
+      gap: 7px;
+    }
+
+    .field label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .field input,
+    .field select {
+      width: 100%;
+      min-height: 40px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--text);
+      padding: 8px 10px;
+      outline: none;
+    }
+
+    .field input:focus,
+    .field select:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, .12);
+    }
+
+    .button-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .btn {
+      min-height: 40px;
+      border-radius: 8px;
+      background: #e7ecf5;
+      color: #334155;
+      font-weight: 700;
+    }
+
+    .btn.primary {
+      background: var(--blue);
+      color: #fff;
+    }
+
+    .btn.success {
+      background: var(--green);
+      color: #fff;
+    }
+
+    .btn:disabled {
+      opacity: .55;
+      cursor: not-allowed;
+    }
+
+    .message {
+      min-height: 38px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: var(--panel-soft);
+      color: var(--muted);
+      padding: 9px 10px;
+      font-size: 12px;
+      line-height: 1.5;
+      word-break: break-word;
+    }
+
+    .message.error {
+      border-color: rgba(220, 38, 38, .35);
+      background: #fff5f5;
+      color: #991b1b;
+    }
+
+    .message.ok {
+      border-color: rgba(5, 150, 105, .35);
+      background: #f0fdf4;
+      color: #065f46;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .metric {
+      min-height: 74px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-soft);
+      padding: 11px;
+    }
+
+    .metric .value {
+      font-size: 24px;
+      line-height: 1.1;
+      font-weight: 800;
+    }
+
+    .metric .label {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 28px;
+      padding: 5px 9px;
+      border-radius: 8px;
+      background: #e7ecf5;
+      color: #334155;
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .status-badge.active {
+      background: rgba(37, 99, 235, .12);
+      color: var(--blue);
+    }
+
+    .status-badge.done {
+      background: rgba(5, 150, 105, .12);
+      color: var(--green);
+    }
+
+    .status-badge.warn {
+      background: rgba(217, 119, 6, .14);
+      color: var(--amber);
+    }
+
+    .status-badge.fail {
+      background: rgba(220, 38, 38, .12);
+      color: var(--red);
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      padding: 8px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-soft);
+      border-radius: 8px 8px 0 0;
+      overflow-x: auto;
+    }
+
+    .tab {
+      min-height: 34px;
+      padding: 7px 12px;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+
+    .tab.active {
+      background: #fff;
+      color: var(--blue);
+      box-shadow: 0 1px 4px rgba(15, 23, 42, .08);
+    }
+
+    .tab-panel {
+      display: none;
+      padding: 16px;
+    }
+
+    .tab-panel.active {
+      display: block;
+    }
+
+    .workflow {
+      display: grid;
+      gap: 14px;
+    }
+
+    .phase-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(180px, 1fr));
+      gap: 12px;
+    }
+
+    .phase {
+      position: relative;
+      min-height: 168px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 13px;
+      overflow: hidden;
+    }
+
+    .phase::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 4px;
+      background: var(--blue);
+    }
+
+    .phase.clean::before {
+      background: var(--green);
+    }
+
+    .phase.agent::before {
+      background: var(--violet);
+    }
+
+    .phase.review::before {
+      background: var(--amber);
+    }
+
+    .phase.summary::before {
+      background: var(--cyan);
+    }
+
+    .phase.fail::before {
+      background: var(--red);
+    }
+
+    .phase h3 {
+      margin: 0 0 8px;
+      font-size: 15px;
+      line-height: 1.3;
+    }
+
+    .phase p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .phase ul {
+      margin: 10px 0 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 6px;
+    }
+
+    .phase li {
+      display: flex;
+      gap: 7px;
+      color: #334155;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .phase li::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      margin-top: 6px;
+      border-radius: 99px;
+      background: #94a3b8;
+      flex: 0 0 auto;
+    }
+
+    .flow-arrows {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      gap: 6px;
+      align-items: center;
+      margin: 2px 0;
+    }
+
+    .arrow-seg {
+      height: 4px;
+      border-radius: 99px;
+      background: linear-gradient(90deg, var(--blue), var(--green), var(--violet), var(--amber), var(--cyan));
+    }
+
+    .state-track {
+      display: grid;
+      grid-template-columns: repeat(9, minmax(88px, 1fr));
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
+
+    .state-item {
+      min-height: 72px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 9px;
+    }
+
+    .state-item .index {
+      width: 22px;
+      height: 22px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 99px;
+      background: #e7ecf5;
+      color: #475569;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .state-item.current {
+      border-color: rgba(37, 99, 235, .45);
+      background: #eff6ff;
+    }
+
+    .state-item.done {
+      border-color: rgba(5, 150, 105, .35);
+      background: #f0fdf4;
+    }
+
+    .state-item.failed {
+      border-color: rgba(220, 38, 38, .35);
+      background: #fff5f5;
+    }
+
+    .state-item .name {
+      margin-top: 8px;
+      font-size: 12px;
+      font-weight: 800;
+      word-break: break-word;
+    }
+
+    .route-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .route {
+      min-height: 126px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 13px;
+    }
+
+    .route h3 {
+      margin: 0 0 8px;
+      font-size: 15px;
+    }
+
+    .route p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 25px;
+      padding: 4px 7px;
+      border-radius: 7px;
+      background: #eef2ff;
+      color: #3730a3;
+      font-size: 11px;
+      font-weight: 760;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 760px;
+      background: #fff;
+    }
+
+    th,
+    td {
+      padding: 10px 11px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    th {
+      background: var(--panel-soft);
+      color: #334155;
+      font-weight: 800;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .json-box {
+      min-height: 280px;
+      max-height: 560px;
+      overflow: auto;
+      margin: 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 14px;
+      font-size: 12px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .report-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .finding {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 12px;
+    }
+
+    .finding-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .finding-title {
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .finding p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .empty {
+      min-height: 120px;
+      display: grid;
+      place-items: center;
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      text-align: center;
+      padding: 20px;
+    }
+
+    @media (max-width: 1180px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .phase-grid {
+        grid-template-columns: repeat(2, minmax(180px, 1fr));
+      }
+    }
+
+    @media (max-width: 760px) {
+      .shell {
+        width: min(100vw - 24px, 1480px);
+        padding-top: 14px;
+      }
+
+      .topbar {
+        grid-template-columns: 1fr;
+      }
+
+      .endpoint-pill {
+        white-space: normal;
+      }
+
+      .phase-grid,
+      .route-grid,
+      .metric-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .button-row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+<main class="shell">
+  <header class="topbar">
+    <div class="title-block">
+      <h1>CAD 多 Agent 审图流程跟踪</h1>
+      <p>异步运行、任务拆分、上下文治理、并行审核、报告汇总。</p>
+    </div>
+    <div class="endpoint-pill">
+      <span class="dot"></span>
+      <span>POST /api/cad/review-runs</span>
+    </div>
+  </header>
+
+  <section class="layout">
+    <aside class="stack">
+      <section class="panel">
+        <div class="panel-header">
+          <h2>运行控制</h2>
+          <span id="autoPollState">未轮询</span>
+        </div>
+        <div class="panel-body stack">
+          <div class="field">
+            <label for="cadFile">CAD 文件</label>
+            <input id="cadFile" type="file" accept=".dwg,.dxf">
+          </div>
+          <div class="field">
+            <label for="ruleSet">规则集</label>
+            <input id="ruleSet" type="text" value="all" placeholder="all 或规则 ID 列表">
+          </div>
+          <div class="button-row">
+            <button id="uploadBtn" class="btn primary" type="button">创建审图</button>
+            <button id="pollBtn" class="btn success" type="button">开始轮询</button>
+          </div>
+          <div class="field">
+            <label for="runId">runId</label>
+            <input id="runId" type="text" placeholder="上传后自动填入，也可手动输入">
+          </div>
+          <div class="button-row">
+            <button id="statusBtn" class="btn" type="button">查询状态</button>
+            <button id="reportBtn" class="btn" type="button">查询报告</button>
+          </div>
+          <div id="message" class="message">等待操作。</div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>当前运行</h2>
+          <span id="currentStatusBadge" class="status-badge">未创建</span>
+        </div>
+        <div class="panel-body stack">
+          <div class="metric-grid">
+            <div class="metric">
+              <div id="totalTasks" class="value">0</div>
+              <div class="label">任务总数</div>
+            </div>
+            <div class="metric">
+              <div id="succeededTasks" class="value">0</div>
+              <div class="label">成功任务</div>
+            </div>
+            <div class="metric">
+              <div id="failedTasks" class="value">0</div>
+              <div class="label">失败任务</div>
+            </div>
+            <div class="metric">
+              <div id="skippedTasks" class="value">0</div>
+              <div class="label">跳过任务</div>
+            </div>
+          </div>
+          <div class="message" id="runReason">暂无原因。</div>
+        </div>
+      </section>
+    </aside>
+
+    <section class="panel">
+      <nav class="tabs" aria-label="流程视图">
+        <button class="tab active" data-tab="workflow" type="button">工作流</button>
+        <button class="tab" data-tab="state" type="button">状态机</button>
+        <button class="tab" data-tab="routes" type="button">模型路由</button>
+        <button class="tab" data-tab="io" type="button">输入输出</button>
+        <button class="tab" data-tab="report" type="button">报告</button>
+        <button class="tab" data-tab="raw" type="button">原始响应</button>
+      </nav>
+
+      <div id="workflow" class="tab-panel active">
+        <div class="workflow">
+          <div class="phase-grid">
+            <article class="phase">
+              <h3>1. 创建运行</h3>
+              <p>上传 DWG/DXF，生成 runId，主表写入 UPLOADED。</p>
+              <ul>
+                <li>ReviewRunController</li>
+                <li>ReviewRunService.create</li>
+                <li>MultipartFileSnapshot</li>
+              </ul>
+            </article>
+            <article class="phase clean">
+              <h3>2. 解析与清洗</h3>
+              <p>调用外部 CAD 解析器，保存 raw IR，再构造 review_context。</p>
+              <ul>
+                <li>CadParserService</li>
+                <li>CadIrCleaner</li>
+                <li>raw_ir_json / clean_context_json</li>
+              </ul>
+            </article>
+            <article class="phase agent">
+              <h3>3. 规则与任务</h3>
+              <p>规则摘要进入 Dispatcher，输出 ReviewTask 并按优先级限流。</p>
+              <ul>
+                <li>RegulationPlannerAgent</li>
+                <li>DispatcherAgent</li>
+                <li>maxReviewTasks</li>
+              </ul>
+            </article>
+            <article class="phase review">
+              <h3>4. 并行审核</h3>
+              <p>每个任务单独构造证据包，Reviewer 并行产出 Finding。</p>
+              <ul>
+                <li>TaskContextBuilder</li>
+                <li>PreCleanerAgent</li>
+                <li>ReviewerAgent</li>
+              </ul>
+            </article>
+          </div>
+
+          <div class="flow-arrows" aria-hidden="true">
+            <div class="arrow-seg"></div>
+            <div class="arrow-seg"></div>
+            <div class="arrow-seg"></div>
+            <div class="arrow-seg"></div>
+            <div class="arrow-seg"></div>
+            <div class="arrow-seg"></div>
+            <div class="arrow-seg"></div>
+            <div class="arrow-seg"></div>
+          </div>
+
+          <div class="phase-grid">
+            <article class="phase summary">
+              <h3>5. 汇总报告</h3>
+              <p>汇总所有 Finding，检测冲突，计算覆盖率并生成 ReviewReport。</p>
+              <ul>
+                <li>SummarizerAgent</li>
+                <li>ConflictGroup</li>
+                <li>ReviewCoverage</li>
+              </ul>
+            </article>
+            <article class="phase clean">
+              <h3>6. 上下文治理</h3>
+              <p>每次模型调用前压缩上下文，记录超限策略和丢弃数量。</p>
+              <ul>
+                <li>ContextBudgetService</li>
+                <li>ContextEnvelope</li>
+                <li>SHRINK / TOP_K / SPLIT</li>
+              </ul>
+            </article>
+            <article class="phase agent">
+              <h3>7. 结果落库</h3>
+              <p>任务状态和最终报告写入数据库，通过 runId 查询。</p>
+              <ul>
+                <li>cad_review_runs</li>
+                <li>cad_review_run_tasks</li>
+                <li>report_json</li>
+              </ul>
+            </article>
+            <article class="phase fail">
+              <h3>8. 降级兜底</h3>
+              <p>异常、超时、证据不足进入 FAILED、PARTIAL 或 PENDING_REVIEW。</p>
+              <ul>
+                <li>失败任务保留原因</li>
+                <li>跳过任务保留 ruleId</li>
+                <li>不强行 PASS/FAIL</li>
+              </ul>
+            </article>
+          </div>
+        </div>
+      </div>
+
+      <div id="state" class="tab-panel">
+        <div class="stack">
+          <div id="stateTrack" class="state-track"></div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+              <tr>
+                <th>状态</th>
+                <th>触发条件</th>
+                <th>落库信息</th>
+              </tr>
+              </thead>
+              <tbody>
+              <tr><td>UPLOADED</td><td>创建 runId</td><td>cad_review_runs 插入主记录</td></tr>
+              <tr><td>PARSED</td><td>CAD 解析成功</td><td>保存 raw_ir_json</td></tr>
+              <tr><td>CLEANED</td><td>清洗上下文成功</td><td>保存 clean_context_json</td></tr>
+              <tr><td>RULE_PLANNED</td><td>规则选择完成</td><td>记录 ruleSet</td></tr>
+              <tr><td>DISPATCHED</td><td>任务生成并落库</td><td>任务 DISPATCHED / SKIPPED</td></tr>
+              <tr><td>REVIEWING</td><td>Reviewer 并发执行</td><td>任务 RUNNING</td></tr>
+              <tr><td>SUMMARIZING</td><td>汇总报告</td><td>收割任务结果</td></tr>
+              <tr><td>COMPLETED</td><td>完整报告生成</td><td>保存 report_json</td></tr>
+              <tr><td>PARTIAL / FAILED</td><td>部分失败或异常</td><td>保存降级报告和 reason</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="routes" class="tab-panel">
+        <div class="route-grid">
+          <article class="route">
+            <h3>轻量模型</h3>
+            <p>用于规划、分派和前置压缩，目标是低成本处理结构化任务。</p>
+            <div class="chips">
+              <span class="chip">REGULATION_PLANNER</span>
+              <span class="chip">DISPATCHER</span>
+              <span class="chip">PRE_CLEANER</span>
+            </div>
+          </article>
+          <article class="route">
+            <h3>深度模型</h3>
+            <p>用于正式审核、复核和高风险结论处理，目标是提升判断质量。</p>
+            <div class="chips">
+              <span class="chip">REVIEWER</span>
+              <span class="chip">VERIFIER</span>
+              <span class="chip">SUMMARIZER</span>
+            </div>
+          </article>
+          <article class="route">
+            <h3>并发执行</h3>
+            <p>reviewRunTaskExecutor 执行 run，reviewerTaskExecutor 并行执行 ReviewTask。</p>
+            <div class="chips">
+              <span class="chip">cad-review-run-*</span>
+              <span class="chip">cad-reviewer-*</span>
+            </div>
+          </article>
+          <article class="route">
+            <h3>上下文预算</h3>
+            <p>超过角色预算时依次触发摘要压缩、证据 Top-K、分片降级和人工复核。</p>
+            <div class="chips">
+              <span class="chip">SHRINK_SUMMARY</span>
+              <span class="chip">SELECT_TOP_K_EVIDENCE</span>
+              <span class="chip">SPLIT_AND_REDUCE</span>
+              <span class="chip">PENDING_REVIEW</span>
+            </div>
+          </article>
+        </div>
+      </div>
+
+      <div id="io" class="tab-panel">
+        <div class="table-wrap">
+          <table>
+            <thead>
+            <tr>
+              <th>阶段</th>
+              <th>输入</th>
+              <th>输出</th>
+              <th>跟踪点</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr><td>创建 run</td><td>file, ruleSet</td><td>runId, UPLOADED</td><td>cad_review_runs</td></tr>
+            <tr><td>解析</td><td>DWG/DXF</td><td>drawingIr</td><td>raw_ir_json</td></tr>
+            <tr><td>清洗</td><td>drawingIr</td><td>review_context</td><td>clean_context_json</td></tr>
+            <tr><td>任务分派</td><td>图纸摘要, RuleDigest</td><td>ReviewTask[]</td><td>task_json</td></tr>
+            <tr><td>任务清洗</td><td>ReviewTask, 规则, 证据组</td><td>ContextEnvelope</td><td>ContextBudget</td></tr>
+            <tr><td>审核</td><td>任务级上下文</td><td>Finding[]</td><td>SUCCEEDED / FAILED</td></tr>
+            <tr><td>汇总</td><td>Findings, 覆盖率, 失败任务</td><td>ReviewReport</td><td>report_json</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="report" class="tab-panel">
+        <div id="reportSummary" class="empty">暂无报告。</div>
+      </div>
+
+      <div id="raw" class="tab-panel">
+        <pre id="rawJson" class="json-box">暂无响应。</pre>
+      </div>
+    </section>
+  </section>
+</main>
+
+<script>
+  const apiBase = window.location.protocol === 'file:' ? 'http://localhost:8090' : '';
+  const runStates = [
+    'UPLOADED',
+    'PARSED',
+    'CLEANED',
+    'RULE_PLANNED',
+    'DISPATCHED',
+    'REVIEWING',
+    'SUMMARIZING',
+    'COMPLETED',
+    'PARTIAL',
+    'FAILED'
+  ];
+
+  const terminalStates = new Set(['COMPLETED', 'PARTIAL', 'FAILED']);
+  let pollTimer = null;
+  let lastStatusPayload = null;
+  let lastReportPayload = null;
+
+  const $ = (id) => document.getElementById(id);
+
+  function apiData(payload) {
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('接口返回为空');
+    }
+    if ('code' in payload && payload.code !== 0 && payload.code !== 200) {
+      throw new Error(payload.msg || '接口返回失败');
+    }
+    return 'data' in payload ? payload.data : payload;
+  }
+
+  function setMessage(text, type = '') {
+    const el = $('message');
+    el.textContent = text;
+    el.className = `message ${type}`.trim();
+  }
+
+  function prettyJson(value) {
+    return JSON.stringify(value, null, 2);
+  }
+
+  function setRaw(value) {
+    $('rawJson').textContent = prettyJson(value);
+  }
+
+  function statusClass(status) {
+    if (status === 'FAILED') return 'fail';
+    if (status === 'PARTIAL') return 'warn';
+    if (status === 'COMPLETED') return 'done';
+    if (status) return 'active';
+    return '';
+  }
+
+  function renderStateTrack(currentStatus) {
+    const track = $('stateTrack');
+    track.innerHTML = '';
+    const currentIndex = runStates.indexOf(currentStatus);
+    runStates.forEach((state, index) => {
+      const item = document.createElement('div');
+      item.className = 'state-item';
+      if (state === currentStatus) {
+        item.classList.add(state === 'FAILED' ? 'failed' : 'current');
+      } else if (currentIndex >= 0 && index < currentIndex && !terminalStates.has(state)) {
+        item.classList.add('done');
+      }
+      if (currentStatus === 'COMPLETED' && index <= runStates.indexOf('COMPLETED')) {
+        item.classList.add('done');
+      }
+      if (currentStatus === 'PARTIAL' && index <= runStates.indexOf('SUMMARIZING')) {
+        item.classList.add('done');
+      }
+      item.innerHTML = `<span class="index">${index + 1}</span><div class="name">${state}</div>`;
+      track.appendChild(item);
+    });
+  }
+
+  function renderSummary(summary) {
+    lastStatusPayload = summary;
+    const status = summary?.status || '未知';
+    const badge = $('currentStatusBadge');
+    badge.textContent = status;
+    badge.className = `status-badge ${statusClass(status)}`.trim();
+    $('totalTasks').textContent = summary?.totalTasks ?? 0;
+    $('succeededTasks').textContent = summary?.succeededTasks ?? 0;
+    $('failedTasks').textContent = summary?.failedTasks ?? 0;
+    $('skippedTasks').textContent = summary?.skippedTasks ?? 0;
+    $('runReason').textContent = summary?.reason || '暂无原因。';
+    renderStateTrack(status);
+  }
+
+  function verdictClass(verdict) {
+    if (verdict === 'FAIL') return 'fail';
+    if (verdict === 'PASS') return 'done';
+    if (verdict === 'PENDING_REVIEW') return 'warn';
+    return 'active';
+  }
+
+  function renderReport(report) {
+    lastReportPayload = report;
+    const host = $('reportSummary');
+    const findings = Array.isArray(report?.findings) ? report.findings : [];
+    const coverage = report?.coverage || {};
+    const findingHtml = findings.length
+      ? findings.map((finding, index) => `
+        <article class="finding">
+          <div class="finding-head">
+            <div class="finding-title">${index + 1}. ${finding.ruleId || '未绑定规则'} / ${finding.clauseId || '未绑定条款'}</div>
+            <span class="status-badge ${verdictClass(finding.verdict)}">${finding.verdict || 'UNKNOWN'}</span>
+          </div>
+          <p>${escapeHtml(finding.evidenceText || finding.reason || '无证据文本')}</p>
+          <p>区域：${escapeHtml(finding.areaId || 'UNKNOWN')}；风险：${escapeHtml(finding.riskLevel || 'UNKNOWN')}；置信度：${finding.confidence ?? '未提供'}</p>
+        </article>
+      `).join('')
+      : '<div class="empty">报告暂无 finding。</div>';
+
+    host.className = 'stack';
+    host.innerHTML = `
+      <div class="metric-grid">
+        <div class="metric">
+          <div class="value">${report?.overallVerdict || 'UNKNOWN'}</div>
+          <div class="label">整体结论</div>
+        </div>
+        <div class="metric">
+          <div class="value">${report?.partial ? '是' : '否'}</div>
+          <div class="label">是否降级</div>
+        </div>
+        <div class="metric">
+          <div class="value">${coverage.totalTasks ?? 0}</div>
+          <div class="label">覆盖任务</div>
+        </div>
+        <div class="metric">
+          <div class="value">${Math.round((coverage.taskCoverageRate ?? 0) * 100)}%</div>
+          <div class="label">任务覆盖率</div>
+        </div>
+      </div>
+      <div class="message">${escapeHtml(report?.reason || '暂无原因。')}</div>
+      <div class="report-list">${findingHtml}</div>
+    `;
+  }
+
+  function escapeHtml(value) {
+    return String(value)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#039;');
+  }
+
+  async function createRun() {
+    const file = $('cadFile').files[0];
+    if (!file) {
+      setMessage('请选择 .dwg 或 .dxf 文件。', 'error');
+      return;
+    }
+    const form = new FormData();
+    form.append('file', file);
+    const ruleSet = $('ruleSet').value.trim();
+    if (ruleSet) {
+      form.append('ruleSet', ruleSet);
+    }
+    $('uploadBtn').disabled = true;
+    setMessage('正在创建审图任务...');
+    try {
+      const response = await fetch(`${apiBase}/api/cad/review-runs`, {
+        method: 'POST',
+        body: form
+      });
+      const payload = await response.json();
+      setRaw(payload);
+      const data = apiData(payload);
+      if (!data?.runId) {
+        throw new Error('接口未返回 runId');
+      }
+      $('runId').value = data.runId;
+      renderSummary(data);
+      setMessage(`已创建任务：${data.runId}`, 'ok');
+      startPolling();
+    } catch (error) {
+      setMessage(error.message, 'error');
+    } finally {
+      $('uploadBtn').disabled = false;
+    }
+  }
+
+  async function fetchStatus(silent = false) {
+    const runId = $('runId').value.trim();
+    if (!runId) {
+      setMessage('请输入 runId。', 'error');
+      return null;
+    }
+    try {
+      const response = await fetch(`${apiBase}/api/cad/review-runs/${encodeURIComponent(runId)}`);
+      const payload = await response.json();
+      setRaw(payload);
+      const data = apiData(payload);
+      renderSummary(data);
+      if (!silent) {
+        setMessage(`状态：${data.status}`, 'ok');
+      }
+      if (terminalStates.has(data.status)) {
+        stopPolling();
+        await fetchReport(true);
+      }
+      return data;
+    } catch (error) {
+      if (!silent) {
+        setMessage(error.message, 'error');
+      }
+      return null;
+    }
+  }
+
+  async function fetchReport(silent = false) {
+    const runId = $('runId').value.trim();
+    if (!runId) {
+      setMessage('请输入 runId。', 'error');
+      return null;
+    }
+    try {
+      const response = await fetch(`${apiBase}/api/cad/review-runs/${encodeURIComponent(runId)}/report`);
+      const payload = await response.json();
+      setRaw(payload);
+      const data = apiData(payload);
+      renderReport(data);
+      if (!silent) {
+        setMessage(`报告结论：${data.overallVerdict || 'UNKNOWN'}`, 'ok');
+      }
+      return data;
+    } catch (error) {
+      if (!silent) {
+        setMessage(error.message, 'error');
+      }
+      return null;
+    }
+  }
+
+  function startPolling() {
+    stopPolling(false);
+    $('autoPollState').textContent = '轮询中';
+    pollTimer = window.setInterval(() => fetchStatus(true), 3000);
+    fetchStatus(true);
+  }
+
+  function stopPolling(update = true) {
+    if (pollTimer) {
+      window.clearInterval(pollTimer);
+      pollTimer = null;
+    }
+    if (update) {
+      $('autoPollState').textContent = '已停止';
+    }
+  }
+
+  function bindTabs() {
+    document.querySelectorAll('.tab').forEach((tab) => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach((item) => item.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.remove('active'));
+        tab.classList.add('active');
+        $(tab.dataset.tab).classList.add('active');
+      });
+    });
+  }
+
+  $('uploadBtn').addEventListener('click', createRun);
+  $('statusBtn').addEventListener('click', () => fetchStatus(false));
+  $('reportBtn').addEventListener('click', () => fetchReport(false));
+  $('pollBtn').addEventListener('click', () => {
+    if (pollTimer) {
+      stopPolling();
+    } else {
+      startPolling();
+    }
+  });
+
+  bindTabs();
+  renderStateTrack('');
+</script>
+</body>
+</html>

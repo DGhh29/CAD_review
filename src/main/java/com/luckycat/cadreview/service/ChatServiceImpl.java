@@ -13,6 +13,20 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+/**
+ * {@link ChatService} 的默认实现：带 RAG 增强的普通对话。
+ *
+ * <p>处理流程：
+ * <ol>
+ *   <li>按 {@code provider} 选 OpenAI 或 Anthropic 客户端</li>
+ *   <li>调 {@link KnowledgeService#searchRelevantClauses} 在向量库中找相关规范条款，
+ *       拼成 system context（找不到或失败则降级为无 RAG 直接对话）</li>
+ *   <li>调 LLM 拿响应，记录 token 与耗时日志</li>
+ * </ol>
+ *
+ * <p>调用方：{@link com.luckycat.cadreview.controller.ChatController}。
+ * 与多 Agent 审图链路完全解耦，主要用于前端聊天面板的对话问答。
+ */
 @Slf4j
 @Service
 public class ChatServiceImpl implements ChatService {
@@ -33,6 +47,17 @@ public class ChatServiceImpl implements ChatService {
         this.knowledgeService = knowledgeService;
     }
 
+    /**
+     * 发起一次带 RAG 检索增强的对话。
+     *
+     * <p>失败模式：
+     * <ul>
+     *   <li>LLM 调用本身失败——异常向上抛，由
+     *       {@link com.luckycat.cadreview.common.GlobalExceptionHandler#handleGeneral}
+     *       兜底转 500</li>
+     *   <li>RAG 检索失败——降级为不带 system 的纯对话，记 warn 日志</li>
+     * </ul>
+     */
     @Override
     public ChatResponse chat(Provider provider, String message) {
         Provider resolved = provider != null ? provider : properties.getDefaultProvider();
@@ -43,6 +68,7 @@ public class ChatServiceImpl implements ChatService {
 
         String systemContext = buildRagContext(message);
 
+        // 拆成两条分支是因为 system 为空时直接传空串会浪费 token，且不同 provider 行为不一致
         org.springframework.ai.chat.model.ChatResponse aiResponse;
         if (systemContext.isEmpty()) {
             aiResponse = client.prompt()
@@ -75,6 +101,14 @@ public class ChatServiceImpl implements ChatService {
                 .build();
     }
 
+    /**
+     * 用用户问题去向量库里检索 top-5 条最相关的规范条款，拼成一段 system 提示。
+     *
+     * <p>检索失败（向量库不通、超时等）时返回空串，让上游降级到无 RAG 模式，
+     * 避免知识库故障把整个聊天接口拖死。
+     *
+     * @return 拼装好的 system 文本；无可用条款或检索失败时返回空串
+     */
     private String buildRagContext(String message) {
         try {
             List<KnowledgeSearchResult> clauses = knowledgeService.searchRelevantClauses(message, 5);

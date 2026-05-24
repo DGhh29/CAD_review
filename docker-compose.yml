@@ -1,20 +1,16 @@
 services:
-  postgres:
-    image: pgvector/pgvector:pg16
-    container_name: cad-review-pgvector
-    environment:
-      POSTGRES_DB: cad_review_vector
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+  cad-parser:
+    build:
+      context: ../cad-drawing-parser
+      dockerfile: Dockerfile
+    image: cad-review/cad-parser:latest
+    container_name: cad-review-parser
     ports:
-      - "5432:5432"
-    volumes:
-      - pgvector_data:/var/lib/postgresql/data
+      - "8765:8000"
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 10s
       timeout: 3s
-      retries: 5
-
-volumes:
-  pgvector_data:
+      retries: 3
+      start_period: 5s
