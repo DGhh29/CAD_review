@@ -46,12 +46,16 @@ public class CadIrCleaner {
     private static final int MAX_ENTITY_SAMPLES = 180;
     /** 单个证据组下每个 field 的硬上限，防止某类对象被错误归类后把一个组撑爆。 */
     private static final int MAX_GROUP_ITEMS = 80;
+    private static final int MAX_INDICATOR_ROWS = 120;
+    private static final double TABLE_ROW_Y_TOLERANCE = 350.0d;
+    private static final double TABLE_ROW_MAX_X_DISTANCE = 12_000.0d;
     private static final String PRIORITY_EVIDENCE = "priority_evidence";
 
     /** 形如 "A12-3"、"BLK_01" 的短编号文本：单独出现没有审图价值，会被丢弃。 */
     private static final Pattern SHORT_CODE = Pattern.compile("^[A-Z0-9_\\-]{4,12}$");
     /** 纯数字文本，孤立时无意义；只有当它落在某个有语义锚点附近时才作为"上下文数字"保留。 */
     private static final Pattern PURE_NUMBER = Pattern.compile("^[-+]?\\d+(?:\\.\\d+)?$");
+    private static final Pattern NUMBER_IN_TEXT = Pattern.compile("[-+]?\\d+(?:\\.\\d+)?");
     /** 尺寸/标注类文本：含 L=、R=、H=、比例号、单位等典型尺寸语法，要保留进 dimensions 组。 */
     private static final Pattern DIMENSION_TEXT = Pattern.compile(
             ".*([LRH]=\\s*[-+]?\\d+(?:\\.\\d+)?|^R\\s*\\d+(?:\\.\\d+)?|\\d+\\s*[:：]\\s*\\d+|\\d+(?:\\.\\d+)?\\s*(m|mm|㎡|%)|%%%).*",
@@ -147,6 +151,7 @@ public class CadIrCleaner {
 
         ArrayNode cleanDimensions = cleanDimensions(drawingIr.path("dimensions"), hiddenLayers, mainBbox, groups, counters);
         ArrayNode cleanEntitySamples = cleanEntities(drawingIr.path("entities"), hiddenLayers, mainBbox, groups, counters);
+        ArrayNode indicatorRows = buildIndicatorRows(drawingIr.path("texts"), hiddenLayers, mainBbox, cleanTexts, groups, counters);
         addBlocksToGroups(cleanBlocks, groups, counters);
 
         context.set("quality", buildQualityNode(drawingIr, mainBbox, counters, groups));
@@ -155,6 +160,7 @@ public class CadIrCleaner {
         context.set("clean_texts", cleanTexts);
         context.set("clean_dimensions", cleanDimensions);
         context.set("clean_entity_samples", cleanEntitySamples);
+        context.set("indicator_rows", indicatorRows);
         context.set("evidence_groups", groups);
         context.set("detected_disciplines", buildDetectedDisciplines(groups));
         context.set("review_readiness", buildReviewReadiness(groups, counters));
@@ -325,6 +331,78 @@ public class CadIrCleaner {
     }
 
     /**
+     * 重建图纸表格中的“标签 + 数字 + 单位”行。
+     *
+     * <p>CAD 表格经常不是一个真正的表格对象，而是多个 TEXT/MTEXT：左侧是“本层机动车停车位：”，
+     * 右侧才是“62”“个”。普通清洗会把孤立纯数字当噪声丢掉，导致停车配建、建筑面积等规则无法计算。
+     * 这里按同一图层、近似同一 y 坐标、数字在标签右侧的规则，把关键指标行还原出来。
+     */
+    private ArrayNode buildIndicatorRows(
+            JsonNode textsNode,
+            Set<String> hiddenLayers,
+            RobustBbox mainBbox,
+            ArrayNode cleanTexts,
+            ObjectNode groups,
+            CleanCounters counters) {
+        List<TableText> labels = new ArrayList<>();
+        List<TableText> values = new ArrayList<>();
+        for (JsonNode text : iterable(textsNode)) {
+            String content = normalizeText(text.path("text").asText(""));
+            String layer = normalizeKey(text.path("layer").asText(""));
+            if (content.isBlank() || hiddenLayers.contains(layer) || mainBbox.isOutlier(text)) {
+                continue;
+            }
+            Point point = pointOf(text);
+            if (point == null) {
+                continue;
+            }
+            TableText item = new TableText(text, content, layer, point);
+            if (isIndicatorLabel(content)) {
+                labels.add(item);
+                continue;
+            }
+            if (isIndicatorValue(content)) {
+                values.add(item);
+            }
+        }
+
+        ArrayNode rows = objectMapper.createArrayNode();
+        Set<String> keptValueKeys = new LinkedHashSet<>();
+        for (TableText label : labels) {
+            List<TableText> rowValues = values.stream()
+                    .filter(value -> sameTableRow(label, value))
+                    .sorted(Comparator.comparingDouble(value -> value.point().x()))
+                    .toList();
+            if (rowValues.isEmpty()) {
+                continue;
+            }
+            ObjectNode row = objectMapper.createObjectNode();
+            row.put("label", label.content());
+            row.put("layer", label.source().path("layer").asText(""));
+            row.put("category", indicatorCategory(label.content()));
+            row.put("source", "text_row_reconstruction");
+            row.set("label_point", label.source().path("point").deepCopy());
+            ArrayNode rowValueNodes = row.putArray("values");
+            for (TableText value : rowValues) {
+                rowValueNodes.add(compactIndicatorValue(value.source()));
+                String key = pointKey(value.source());
+                if (keptValueKeys.add(key)) {
+                    ObjectNode compact = compactText(value.source(), "indicator_row_value");
+                    compact.put(PRIORITY_EVIDENCE, true);
+                    compact.put("priority_reason", "indicator_row_value");
+                    addLimited(cleanTexts, compact, MAX_CLEAN_TEXTS);
+                    addIndicatorValueToGroups(groups, compact, label.content());
+                    counters.priorityTexts++;
+                    counters.indicatorValueTexts++;
+                }
+            }
+            addLimited(rows, row, MAX_INDICATOR_ROWS);
+            counters.indicatorRows++;
+        }
+        return rows;
+    }
+
+    /**
      * 清洗 dimension 标注：
      * <ul>
      *   <li>隐藏图层、离群、缺 measurement 字段、measurement<=0 全部丢弃。</li>
@@ -491,6 +569,8 @@ public class CadIrCleaner {
         kept.put("unclassified_blocks", counters.unclassifiedBlocks);
         kept.put("priority_texts", counters.priorityTexts);
         kept.put("priority_entities", counters.priorityEntities);
+        kept.put("indicator_rows", counters.indicatorRows);
+        kept.put("indicator_value_texts", counters.indicatorValueTexts);
 
         ArrayNode limitations = quality.putArray("limitations");
         if (quality.path("entity_truncated").asBoolean(false)) {
@@ -727,6 +807,73 @@ public class CadIrCleaner {
             groups.add("building_info");
         }
         return groups;
+    }
+
+    private boolean isIndicatorLabel(String content) {
+        String normalized = normalizeKey(content);
+        return normalized.contains("建筑面积")
+                || normalized.contains("停车位")
+                || normalized.contains("车位")
+                || normalized.contains("无障碍")
+                || normalized.contains("机动车")
+                || normalized.contains("非机动车")
+                || normalized.contains("总建筑面积")
+                || normalized.contains("计容面积");
+    }
+
+    private boolean isIndicatorValue(String content) {
+        String normalized = normalizeKey(content);
+        if (!NUMBER_IN_TEXT.matcher(normalized).find()) {
+            return false;
+        }
+        return PURE_NUMBER.matcher(normalized).matches()
+                || normalized.matches("[-+]?\\d+(?:\\.\\d+)?\\s*(m|mm|㎡|m2|%)?")
+                || normalized.matches("[-+]?\\d+(?:\\.\\d+)?\\s*个?");
+    }
+
+    private boolean sameTableRow(TableText label, TableText value) {
+        if (!label.layer().equals(value.layer())) {
+            return false;
+        }
+        double dx = value.point().x() - label.point().x();
+        double dy = Math.abs(value.point().y() - label.point().y());
+        return dx > 0.0d && dx <= TABLE_ROW_MAX_X_DISTANCE && dy <= TABLE_ROW_Y_TOLERANCE;
+    }
+
+    private String indicatorCategory(String label) {
+        String normalized = normalizeKey(label);
+        if (normalized.contains("停车") || normalized.contains("车位")
+                || normalized.contains("机动车") || normalized.contains("非机动车") || normalized.contains("无障碍")) {
+            return "parking";
+        }
+        if (normalized.contains("建筑面积") || normalized.contains("计容面积")) {
+            return "building_info";
+        }
+        return "general";
+    }
+
+    private ObjectNode compactIndicatorValue(JsonNode text) {
+        ObjectNode node = compactText(text, "indicator_row_value");
+        node.put(PRIORITY_EVIDENCE, true);
+        node.put("priority_reason", "indicator_row_value");
+        return node;
+    }
+
+    private void addIndicatorValueToGroups(ObjectNode groups, ObjectNode compact, String label) {
+        String category = indicatorCategory(label);
+        if ("parking".equals(category)) {
+            addToGroup(groups, "parking", "texts", compact);
+            addToGroup(groups, "building_info", "texts", compact);
+            return;
+        }
+        if ("building_info".equals(category)) {
+            addToGroup(groups, "building_info", "texts", compact);
+            addToGroup(groups, "parking", "texts", compact);
+        }
+    }
+
+    private String pointKey(JsonNode text) {
+        return text.path("layer").asText("") + "|" + text.path("text").asText("") + "|" + text.path("point");
     }
 
     private boolean isMeaningfulText(String content) {
@@ -1076,6 +1223,10 @@ public class CadIrCleaner {
     private record AnchorDistance(JsonNode anchor, double value) {
     }
 
+    /** 表格文字及其坐标，用于重建“标签 + 数字”指标行。 */
+    private record TableText(JsonNode source, String content, String layer, Point point) {
+    }
+
     /** 二维坐标点的最小载体。 */
     private record Point(double x, double y) {
     }
@@ -1163,5 +1314,7 @@ public class CadIrCleaner {
         private int outlierEntities;
         private int priorityTexts;
         private int priorityEntities;
+        private int indicatorRows;
+        private int indicatorValueTexts;
     }
 }

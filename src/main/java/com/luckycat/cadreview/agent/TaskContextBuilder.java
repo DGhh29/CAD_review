@@ -38,6 +38,7 @@ public class TaskContextBuilder {
         context.set("evidence_groups", selectGroups(reviewContext.path("evidence_groups"), task, rules));
         context.set("clean_texts", reviewContext.path("clean_texts").deepCopy());
         context.set("clean_dimensions", reviewContext.path("clean_dimensions").deepCopy());
+        context.set("indicator_rows", selectIndicatorRows(reviewContext.path("indicator_rows"), task, rules));
         context.set("selected_ir", slicedIr);
         context.put("context_policy", task.getContextPolicy());
         return preCleanerAgent.cleanForTask(task.getTaskId(), context);
@@ -62,6 +63,17 @@ public class TaskContextBuilder {
             }
         }
         return result;
+    }
+
+    private JsonNode selectIndicatorRows(JsonNode source, ReviewTask task, List<ReviewRule> rules) {
+        if (!source.isArray()) {
+            return objectMapper.createArrayNode();
+        }
+        Set<String> groups = requestedGroups(task, rules);
+        if (groups.contains("parking") || groups.contains("building_info")) {
+            return source.deepCopy();
+        }
+        return objectMapper.createArrayNode();
     }
 
     private Set<String> requestedGroups(ReviewTask task, List<ReviewRule> rules) {

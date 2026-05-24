@@ -122,6 +122,43 @@ class CadIrCleanerTest {
         assertThat(context.path("quality").path("kept_counts").path("priority_texts").asInt()).isEqualTo(1);
     }
 
+    @Test
+    void shouldRebuildIndicatorRowsAndKeepNumericValuesBesideLabels() {
+        CadIrCleaner cleaner = new CadIrCleaner(objectMapper);
+        ObjectNode ir = objectMapper.createObjectNode();
+        ir.put("schema_version", "cad-drawing-parser.v1");
+        ir.put("success", true);
+        ObjectNode summary = ir.putObject("summary");
+        summary.put("entity_count", 0);
+        ObjectNode bbox = summary.putObject("bbox");
+        bbox.put("min_x", 0);
+        bbox.put("min_y", 0);
+        bbox.put("max_x", 10000);
+        bbox.put("max_y", 10000);
+        ArrayNode layers = ir.putArray("layers");
+        addLayer(layers, "PUB_TEXT", 8);
+        ir.putArray("blocks");
+        ir.putArray("dimensions");
+        ir.putArray("entities");
+
+        ArrayNode texts = ir.putArray("texts");
+        addText(texts, "PUB_TEXT", "本层建筑面积：", 1000, 5000);
+        addText(texts, "PUB_TEXT", "8053.91m", 4200, 5000);
+        addText(texts, "PUB_TEXT", "本层机动车停车位：", 1000, 4000);
+        addText(texts, "PUB_TEXT", "62", 5200, 4000);
+        addText(texts, "PUB_TEXT", "个", 6100, 4000);
+        addText(texts, "PUB_TEXT", "普通机动车停车位：", 1000, 3000);
+        addText(texts, "PUB_TEXT", "60", 5200, 3000);
+
+        JsonNode context = cleaner.buildReviewContext(ir);
+
+        assertThat(context.path("indicator_rows").toString()).contains("本层建筑面积", "8053.91m", "本层机动车停车位", "62", "普通机动车停车位", "60");
+        assertThat(context.path("evidence_groups").path("parking").path("texts").toString()).contains("62", "60", "8053.91m");
+        assertThat(context.path("clean_texts").toString()).contains("62", "60");
+        assertThat(context.path("quality").path("kept_counts").path("indicator_rows").asInt()).isEqualTo(3);
+        assertThat(context.path("quality").path("kept_counts").path("indicator_value_texts").asInt()).isGreaterThanOrEqualTo(3);
+    }
+
     private void addLayer(ArrayNode layers, String name, int entityCount) {
         ObjectNode layer = layers.addObject();
         layer.put("name", name);
@@ -144,5 +181,15 @@ class CadIrCleanerTest {
         entityBbox.put("width", 1);
         entityBbox.put("height", 1);
         return entity;
+    }
+
+    private void addText(ArrayNode texts, String layerName, String content, int x, int y) {
+        ObjectNode text = texts.addObject();
+        text.put("layer", layerName);
+        text.put("text", content);
+        ArrayNode point = text.putArray("point");
+        point.add(x);
+        point.add(y);
+        point.add(0);
     }
 }

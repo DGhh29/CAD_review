@@ -117,15 +117,7 @@ public class ContextBudgetService {
             return node;
         }
         if (node.isArray()) {
-            ArrayNode result = objectMapper.createArrayNode();
-            int index = 0;
-            for (JsonNode item : node) {
-                if (index++ >= maxArrayItems) {
-                    break;
-                }
-                result.add(shrink(item, maxArrayItems));
-            }
-            return result;
+            return shrinkArray((ArrayNode) node, maxArrayItems);
         }
         if (node.isObject()) {
             ObjectNode result = objectMapper.createObjectNode();
@@ -144,6 +136,37 @@ public class ContextBudgetService {
             }
         }
         return node.deepCopy();
+    }
+
+    private ArrayNode shrinkArray(ArrayNode array, int maxArrayItems) {
+        ArrayNode result = objectMapper.createArrayNode();
+        if (array.size() <= maxArrayItems) {
+            for (JsonNode item : array) {
+                result.add(shrink(item, maxArrayItems));
+            }
+            return result;
+        }
+        for (JsonNode item : array) {
+            if (result.size() >= maxArrayItems) {
+                break;
+            }
+            if (isPriorityEvidence(item)) {
+                result.add(shrink(item, maxArrayItems));
+            }
+        }
+        for (JsonNode item : array) {
+            if (result.size() >= maxArrayItems) {
+                break;
+            }
+            if (!isPriorityEvidence(item)) {
+                result.add(shrink(item, maxArrayItems));
+            }
+        }
+        return result;
+    }
+
+    private boolean isPriorityEvidence(JsonNode node) {
+        return node != null && node.path("priority_evidence").asBoolean(false);
     }
 
     private JsonNode keepHighValueFields(JsonNode node) {
