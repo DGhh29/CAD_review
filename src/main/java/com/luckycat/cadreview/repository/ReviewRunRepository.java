@@ -19,6 +19,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -152,6 +153,24 @@ public class ReviewRunRepository {
         } catch (EmptyResultDataAccessException ex) {
             return Optional.empty();
         }
+    }
+
+    public List<ReviewRunSummary> listSummaries(int limit) {
+        int safeLimit = Math.max(1, Math.min(limit, 100));
+        return jdbcTemplate.query("""
+                select r.run_id, r.status, r.file_name, r.rule_set, r.reason,
+                       r.created_at, r.updated_at, r.completed_at,
+                       count(t.id) as total_tasks,
+                       sum(case when t.status = 'SUCCEEDED' then 1 else 0 end) as succeeded_tasks,
+                       sum(case when t.status = 'FAILED' then 1 else 0 end) as failed_tasks,
+                       sum(case when t.status = 'SKIPPED' then 1 else 0 end) as skipped_tasks
+                from cad_review_runs r
+                left join cad_review_run_tasks t on r.run_id = t.run_id
+                group by r.run_id, r.status, r.file_name, r.rule_set, r.reason,
+                         r.created_at, r.updated_at, r.completed_at
+                order by r.updated_at desc
+                limit ?
+                """, summaryMapper(), safeLimit);
     }
 
     public Optional<ReviewReport> findReport(String runId) {

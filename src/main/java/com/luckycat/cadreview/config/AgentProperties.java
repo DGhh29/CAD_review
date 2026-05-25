@@ -88,6 +88,10 @@ public class AgentProperties {
     @Valid
     private Summarizer summarizer = new Summarizer();
 
+    /** PENDING_REVIEW 后的定向补证据配置。 */
+    @Valid
+    private EvidenceRepair evidenceRepair = new EvidenceRepair();
+
     /** 全部可用的审核规则清单，由 application.yml 的 cad-review.agent.rules 列表静态配置；
      *  运行期通过 {@link #selectRules} 按需筛选。 */
     @Valid
@@ -218,16 +222,16 @@ public class AgentProperties {
     @Data
     public static class Reviewer {
         /** 线程池常驻线程数。设置为预期"持续并发任务量的下限"。 */
-        private int corePoolSize = 1;
+        private int corePoolSize = 2;
 
         /** 线程池最大线程数（同时也是 Reviewer 真正能并行的上限）。
          *  注意：值要 ≥ corePoolSize，否则线程池初始化报错；
          *  调大可加快总耗时，但会同时压向 LLM 提供商，可能触发 RPM/TPM 限流。 */
-        private int parallelMax = 1;
+        private int parallelMax = 4;
 
         /** 线程池任务队列容量。任务多于 parallelMax 时先排队，
          *  队列满才会触发拒绝策略（默认 AbortPolicy 抛 RejectedExecutionException）。 */
-        private int queueCapacity = 10;
+        private int queueCapacity = 20;
 
         /** 单个 Reviewer 任务的超时（秒）。
          *  与 Summarizer.reserveSeconds 共同消耗 totalTimeoutSeconds 总预算：
@@ -267,6 +271,39 @@ public class AgentProperties {
 
         /** 二次验证 LLM 调用的单次超时（秒）。 */
         private int timeoutSeconds = 30;
+    }
+
+    /**
+     * EvidenceRepair 阶段配置。
+     */
+    @Data
+    public static class EvidenceRepair {
+        /** 是否启用 PENDING_REVIEW 后的 raw_ir 定向补证。 */
+        private boolean enabled = true;
+
+        /** 补证 chunk 抽取线程池常驻线程数。 */
+        private int corePoolSize = 2;
+
+        /** 单个应用实例同时执行的补证 chunk 抽取上限。 */
+        private int parallelMax = 4;
+
+        /** 补证 chunk 抽取队列容量。 */
+        private int queueCapacity = 80;
+
+        /** 单个 run 最多对多少个任务做补证，防止成本失控。 */
+        private int maxRepairTasksPerRun = 6;
+
+        /** 单个任务最多补证几次。v1 默认 1 次。 */
+        private int maxAttemptsPerTask = 1;
+
+        /** 单个补证任务最多处理多少个 chunk。 */
+        private int maxChunksPerTask = 40;
+
+        /** EvidenceExtractorAgent 结构化输出最大重试次数。 */
+        private int maxAttempts = 1;
+
+        /** 单个补证 chunk 抽取超时，避免慢请求拖住整轮补证。 */
+        private int chunkTimeoutSeconds = 45;
     }
 
     @Data

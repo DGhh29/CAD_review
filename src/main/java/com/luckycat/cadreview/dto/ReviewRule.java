@@ -1,10 +1,14 @@
 package com.luckycat.cadreview.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import com.luckycat.cadreview.metrics.CadMetricRequest;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 评审规则定义——配置驱动的规则元数据。
@@ -55,4 +59,48 @@ public class ReviewRule {
     // AgentOrchestrator 在产生 ruleMap 前会过滤掉 enabled=false 的项
     @Builder.Default
     private boolean enabled = true;
+
+    // 可选：规则显式声明的确定性指标请求。未配置时由 CadGeometryMetricsService 按规则文本自动推断。
+    @Builder.Default
+    private List<CadMetricRequest> metricRequests = new ArrayList<>();
+
+    // 可选：该规则完成审核必须具备的证据项，用于 PENDING_REVIEW 后定向补证。
+    @Builder.Default
+    private List<String> requiredEvidence = new ArrayList<>();
+
+    // 可选：补证搜索线索。配置后 RawIrChunker 会优先按这些关键词、图层和图元类型切片。
+    @Builder.Default
+    private SearchHints searchHints = new SearchHints();
+
+    // 可选：该规则的补证策略。
+    @Builder.Default
+    private RepairPolicy repairPolicy = new RepairPolicy();
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class SearchHints {
+        @Builder.Default
+        private List<String> keywords = new ArrayList<>();
+
+        @Builder.Default
+        private List<String> layers = new ArrayList<>();
+
+        @Builder.Default
+        private List<String> entityTypes = new ArrayList<>();
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class RepairPolicy {
+        @Builder.Default
+        private boolean enabled = true;
+        private int maxChunks;
+
+        @Builder.Default
+        private List<String> preferredChunkTypes = new ArrayList<>();
+    }
 }

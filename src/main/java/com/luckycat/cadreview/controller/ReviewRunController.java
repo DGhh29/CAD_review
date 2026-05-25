@@ -16,6 +16,8 @@ import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.List;
+
 /**
  * 异步 CAD 审图入口。
  */
@@ -31,6 +33,12 @@ public class ReviewRunController {
             @RequestPart("file") MultipartFile file,
             @RequestParam(value = "ruleSet", required = false) String ruleSet) {
         return ApiResult.ok(reviewRunService.create(file, ruleSet));
+    }
+
+    @GetMapping
+    public ApiResult<List<ReviewRunSummary>> list(
+            @RequestParam(value = "limit", defaultValue = "20") int limit) {
+        return ApiResult.ok(reviewRunService.listSummaries(limit));
     }
 
     @GetMapping("/{runId}")

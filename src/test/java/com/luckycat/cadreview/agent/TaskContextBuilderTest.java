@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.luckycat.cadreview.config.AgentProperties;
 import com.luckycat.cadreview.dto.ReviewRule;
 import com.luckycat.cadreview.dto.ReviewTask;
+import com.luckycat.cadreview.metrics.CadGeometryMetricsService;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -20,7 +21,8 @@ class TaskContextBuilderTest {
         IrViewService irViewService = new IrViewService(objectMapper, properties, cleaner);
         ContextBudgetService budgetService = new ContextBudgetService(objectMapper, properties);
         PreCleanerAgent preCleanerAgent = new PreCleanerAgent(objectMapper, budgetService);
-        TaskContextBuilder builder = new TaskContextBuilder(objectMapper, cleaner, irViewService, preCleanerAgent);
+        TaskContextBuilder builder = new TaskContextBuilder(
+                objectMapper, cleaner, irViewService, preCleanerAgent, CadGeometryMetricsService.createDefault(objectMapper));
 
         var drawingIr = objectMapper.readTree("""
                 {
@@ -93,6 +95,9 @@ class TaskContextBuilderTest {
         assertThat(evidenceGroups.has("road")).isTrue();
         assertThat(evidenceGroups.has("dimensions")).isTrue();
         assertThat(evidenceGroups.has("site_boundary")).isTrue();
+
+        var computedMetrics = builder.build(drawingIr, task, List.of(rule)).path("context").path("computed_metrics");
+        assertThat(computedMetrics.toString()).contains("MEASURE_RADIUS", "R-RD-002");
     }
 
     @Test
@@ -142,12 +147,66 @@ class TaskContextBuilderTest {
         assertThat(evidenceGroups.has("dimensions")).isTrue();
     }
 
+    @Test
+    void shouldInjectEvidencePackIntoRebuildContext() throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper();
+        TaskContextBuilder builder = newBuilder(objectMapper);
+        var drawingIr = objectMapper.readTree("""
+                {
+                  "summary": {"entity_count": 1},
+                  "statistics": {},
+                  "semantic": {},
+                  "texts": [],
+                  "dimensions": [],
+                  "entities": [],
+                  "layers": []
+                }
+                """);
+        ReviewTask task = ReviewTask.builder()
+                .taskId("TASK-FIRE")
+                .checkItem("消防设施")
+                .ruleIds(List.of("FIRE_FACILITY_001"))
+                .category("消防")
+                .build();
+        ReviewRule rule = ReviewRule.builder()
+                .id("FIRE_FACILITY_001")
+                .clauseId("GB50016-8")
+                .title("消防设施")
+                .scope("消防设施")
+                .promptFragment("审核消防设施")
+                .version("v1")
+                .build();
+        TaskEvidencePack pack = TaskEvidencePack.builder()
+                .taskId("TASK-FIRE")
+                .ruleId("FIRE_FACILITY_001")
+                .foundEvidence(List.of(ExtractedEvidence.builder()
+                        .sourcePath("raw_ir.entities[0]")
+                        .layer("EQUIP_消火栓")
+                        .content("消火栓图块")
+                        .confidence(0.9d)
+                        .build()))
+                .quality(TaskEvidencePack.Quality.builder()
+                        .evidenceCount(1)
+                        .sourceTraceable(true)
+                        .confidence(0.9d)
+                        .repairStatus("FOUND_PARTIAL_EVIDENCE")
+                        .build())
+                .build();
+
+        var context = builder.buildWithEvidencePack(drawingIr, task, List.of(rule), pack);
+
+        assertThat(context.path("context").path("evidencePack").path("foundEvidence").toString())
+                .contains("raw_ir.entities[0]", "EQUIP_消火栓");
+        assertThat(context.path("context").path("evidenceRepair").path("repairAttempted").asBoolean()).isTrue();
+    }
+
     private TaskContextBuilder newBuilder(ObjectMapper objectMapper) {
         AgentProperties properties = new AgentProperties();
         CadIrCleaner cleaner = new CadIrCleaner(objectMapper);
         IrViewService irViewService = new IrViewService(objectMapper, properties, cleaner);
         ContextBudgetService budgetService = new ContextBudgetService(objectMapper, properties);
         PreCleanerAgent preCleanerAgent = new PreCleanerAgent(objectMapper, budgetService);
-        return new TaskContextBuilder(objectMapper, cleaner, irViewService, preCleanerAgent);
+        return new TaskContextBuilder(objectMapper, cleaner, irViewService, preCleanerAgent,
+                CadGeometryMetricsService.createDefault(objectMapper));
     }
 }

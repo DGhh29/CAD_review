@@ -10,7 +10,7 @@ import java.util.concurrent.Executor;
 /**
  * Reviewer 阶段并行任务的线程池装配。
  *
- * <p>本配置只产出一个 Bean：{@code reviewerTaskExecutor}。
+ * <p>本配置产出 Reviewer、补证抽取、异步 run 三类线程池。
  * {@link com.luckycat.cadreview.agent.AgentOrchestrator} 通过
  * {@code @Qualifier("reviewerTaskExecutor")} 注入它，把每个 ReviewTask
  * 包成 {@link java.util.concurrent.CompletableFuture} 并行投递给 Reviewer Agent。
@@ -45,6 +45,17 @@ public class AgentExecutorConfig {
         executor.setMaxPoolSize(agentProperties.getReviewer().getParallelMax());
         executor.setQueueCapacity(agentProperties.getReviewer().getQueueCapacity());
         executor.setThreadNamePrefix("cad-reviewer-");
+        executor.initialize();
+        return executor;
+    }
+
+    @Bean(name = "evidenceRepairTaskExecutor")
+    public Executor evidenceRepairTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(agentProperties.getEvidenceRepair().getCorePoolSize());
+        executor.setMaxPoolSize(agentProperties.getEvidenceRepair().getParallelMax());
+        executor.setQueueCapacity(agentProperties.getEvidenceRepair().getQueueCapacity());
+        executor.setThreadNamePrefix("cad-evidence-repair-");
         executor.initialize();
         return executor;
     }

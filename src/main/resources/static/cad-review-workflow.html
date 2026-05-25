@@ -193,6 +193,12 @@
       color: #fff;
     }
 
+    .btn.small {
+      min-height: 30px;
+      padding: 5px 9px;
+      font-size: 12px;
+    }
+
     .btn:disabled {
       opacity: .55;
       cursor: not-allowed;
@@ -246,6 +252,55 @@
       margin-top: 6px;
       color: var(--muted);
       font-size: 12px;
+    }
+
+    .history-list {
+      display: grid;
+      gap: 8px;
+      max-height: 360px;
+      overflow: auto;
+    }
+
+    .history-item {
+      width: 100%;
+      display: grid;
+      gap: 7px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 10px;
+      color: var(--text);
+      text-align: left;
+    }
+
+    .history-item:hover,
+    .history-item.active {
+      border-color: rgba(37, 99, 235, .45);
+      background: #eff6ff;
+    }
+
+    .history-main {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .history-file {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .history-meta,
+    .history-id {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.45;
+      word-break: break-all;
     }
 
     .status-badge {
@@ -717,6 +772,18 @@
           <div class="message" id="runReason">暂无原因。</div>
         </div>
       </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>历史记录</h2>
+          <button id="historyRefreshBtn" class="btn small" type="button">刷新</button>
+        </div>
+        <div class="panel-body">
+          <div id="historyList" class="history-list">
+            <div class="empty">暂无历史记录。</div>
+          </div>
+        </div>
+      </section>
     </aside>
 
     <section class="panel">
@@ -1006,6 +1073,9 @@
   function renderSummary(summary) {
     lastStatusPayload = summary;
     const status = summary?.status || '未知';
+    if (summary?.runId) {
+      $('runId').value = summary.runId;
+    }
     const badge = $('currentStatusBadge');
     badge.textContent = status;
     badge.className = `status-badge ${statusClass(status)}`.trim();
@@ -1015,6 +1085,85 @@
     $('skippedTasks').textContent = summary?.skippedTasks ?? 0;
     $('runReason').textContent = summary?.reason || '暂无原因。';
     renderStateTrack(status);
+    highlightHistory(summary?.runId);
+  }
+
+  function renderHistory(records) {
+    const host = $('historyList');
+    const items = Array.isArray(records) ? records : [];
+    if (!items.length) {
+      host.innerHTML = '<div class="empty">暂无历史记录。</div>';
+      return;
+    }
+    const currentRunId = $('runId').value.trim();
+    host.innerHTML = items.map((item) => `
+      <button class="history-item ${item.runId === currentRunId ? 'active' : ''}" type="button" data-run-id="${escapeHtml(item.runId || '')}">
+        <div class="history-main">
+          <div class="history-file" title="${escapeHtml(item.fileName || '未命名图纸')}">${escapeHtml(item.fileName || '未命名图纸')}</div>
+          <span class="status-badge ${statusClass(item.status)}">${escapeHtml(item.status || 'UNKNOWN')}</span>
+        </div>
+        <div class="history-meta">
+          ${formatTime(item.updatedAt || item.createdAt)} · 任务 ${item.totalTasks ?? 0} / 成功 ${item.succeededTasks ?? 0} / 失败 ${item.failedTasks ?? 0}
+        </div>
+        <div class="history-id">${escapeHtml(item.runId || '')}</div>
+      </button>
+    `).join('');
+    host.querySelectorAll('.history-item').forEach((item) => {
+      item.addEventListener('click', () => selectHistoryRun(item.dataset.runId));
+    });
+  }
+
+  function highlightHistory(runId) {
+    document.querySelectorAll('.history-item').forEach((item) => {
+      item.classList.toggle('active', Boolean(runId) && item.dataset.runId === runId);
+    });
+  }
+
+  function formatTime(value) {
+    if (!value) {
+      return '未记录时间';
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return value;
+    }
+    return date.toLocaleString('zh-CN', {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  }
+
+  async function loadHistory(silent = false) {
+    const host = $('historyList');
+    try {
+      const response = await fetch(`${apiBase}/api/cad/review-runs?limit=30`);
+      const payload = await response.json();
+      const data = apiData(payload);
+      renderHistory(data);
+      if (!silent) {
+        setMessage(`已加载 ${Array.isArray(data) ? data.length : 0} 条历史记录。`, 'ok');
+      }
+      return data;
+    } catch (error) {
+      host.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+      if (!silent) {
+        setMessage(error.message, 'error');
+      }
+      return [];
+    }
+  }
+
+  async function selectHistoryRun(runId) {
+    if (!runId) {
+      return;
+    }
+    stopPolling(false);
+    $('runId').value = runId;
+    highlightHistory(runId);
+    setMessage(`已选择历史记录：${runId}`, 'ok');
+    await fetchStatus(true);
   }
 
   function verdictClass(verdict) {
@@ -1104,6 +1253,7 @@
       $('runId').value = data.runId;
       renderSummary(data);
       setMessage(`已创建任务：${data.runId}`, 'ok');
+      loadHistory(true);
       startPolling();
     } catch (error) {
       setMessage(error.message, 'error');
@@ -1130,6 +1280,7 @@
       if (terminalStates.has(data.status)) {
         stopPolling();
         await fetchReport(true);
+        loadHistory(true);
       }
       return data;
     } catch (error) {
@@ -1195,6 +1346,7 @@
   $('uploadBtn').addEventListener('click', createRun);
   $('statusBtn').addEventListener('click', () => fetchStatus(false));
   $('reportBtn').addEventListener('click', () => fetchReport(false));
+  $('historyRefreshBtn').addEventListener('click', () => loadHistory(false));
   $('pollBtn').addEventListener('click', () => {
     if (pollTimer) {
       stopPolling();
@@ -1205,6 +1357,7 @@
 
   bindTabs();
   renderStateTrack('');
+  loadHistory(true);
 </script>
 </body>
 </html>

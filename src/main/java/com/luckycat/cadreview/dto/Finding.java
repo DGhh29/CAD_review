@@ -44,6 +44,17 @@ public class Finding {
     // 给人看的中文判定理由；展示在前端报告里，建议简明引用规范条文
     private String reason;
 
+    // PENDING_REVIEW 时建议填写：仍缺少哪些证据，供 EvidenceRepairService 定向回查 raw_ir
+    @Builder.Default
+    private List<String> missingEvidence = new ArrayList<>();
+
+    // PENDING_REVIEW 时建议填写：回查 raw_ir 的关键词、图层或块名提示
+    @Builder.Default
+    private List<String> repairHints = new ArrayList<>();
+
+    // 是否允许系统为该 Finding 发起一次定向补证。null 表示按规则默认策略处理。
+    private Boolean repairable;
+
     // 命中的规范条款 ID（如 "GB50016-3.4.5"），SummarizerAgent 以此 + areaId 作为冲突检测主键
     private String clauseId;
 

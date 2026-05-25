@@ -6,6 +6,7 @@ package com.luckycat.cadreview.dto;
 public enum ReviewTaskStatus {
     DISPATCHED,
     RUNNING,
+    REPAIRING,
     SUCCEEDED,
     FAILED,
     SKIPPED

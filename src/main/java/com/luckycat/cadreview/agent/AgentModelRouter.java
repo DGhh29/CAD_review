@@ -26,7 +26,8 @@ public class AgentModelRouter {
     public ChatClient clientFor(AgentRole role) {
         if (role == AgentRole.REGULATION_PLANNER
                 || role == AgentRole.DISPATCHER
-                || role == AgentRole.PRE_CLEANER) {
+                || role == AgentRole.PRE_CLEANER
+                || role == AgentRole.EVIDENCE_EXTRACTOR) {
             return lightweightReviewClient;
         }
         return deepReviewClient;

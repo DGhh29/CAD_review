@@ -83,9 +83,9 @@ cad-review:
       timeout-seconds: 300
       max-attempts: 1
     reviewer:
-      core-pool-size: 1
-      parallel-max: 1
-      queue-capacity: 10
+      core-pool-size: 2
+      parallel-max: 4
+      queue-capacity: 20
       timeout-seconds: 120
       max-attempts: 1
     summarizer:
@@ -95,6 +95,16 @@ cad-review:
       verify-confidence-threshold: 0.7
       max-attempts: 1
       timeout-seconds: 30
+    evidence-repair:
+      enabled: true
+      core-pool-size: 2
+      parallel-max: 4
+      queue-capacity: 80
+      max-repair-tasks-per-run: 6
+      max-attempts-per-task: 1
+      max-chunks-per-task: 40
+      max-attempts: 1
+      chunk-timeout-seconds: 45
     rules:
       - id: FIRE_ZONE_AREA_001
         clause-id: GB50016-5.3.1
@@ -103,6 +113,15 @@ cad-review:
         prompt-fragment: >-
           审核防火分区范围、面积标注和边界闭合线索。若缺少明确面积或边界证据，
           不要臆测结论，应输出 PENDING_REVIEW。
+        required-evidence: [防火分区边界, 防火分区面积, 闭合边界]
+        search-hints:
+          keywords: [防火分区, 防火, 面积, HATCH, 闭合, 边界]
+          layers: [HATCH, FIRE, PUB_TEXT]
+          entity-types: [TEXT, MTEXT, HATCH, LWPOLYLINE, POLYLINE]
+        repair-policy:
+          enabled: true
+          max-chunks: 40
+          preferred-chunk-types: [texts, entities]
         version: "2026-demo"
       - id: EVAC_WIDTH_001
         clause-id: GB50016-5.5
@@ -111,6 +130,15 @@ cad-review:
         prompt-fragment: >-
           审核疏散通道、楼梯和出口净宽。优先引用 DIMENSION 标注和相关几何实体；
           若无法确认净宽，输出 PENDING_REVIEW。
+        required-evidence: [疏散通道净宽, 楼梯净宽, 出口宽度尺寸]
+        search-hints:
+          keywords: [疏散, 楼梯, 通道, 出口, 净宽, 门宽, 宽]
+          layers: [PUB_DIM, DIM, PUB_TEXT, STAIR, DOOR]
+          entity-types: [TEXT, MTEXT, DIMENSION, INSERT, LWPOLYLINE]
+        repair-policy:
+          enabled: true
+          max-chunks: 40
+          preferred-chunk-types: [dimensions, texts, entities]
         version: "2026-demo"
       - id: FIRE_FACILITY_001
         clause-id: GB50016-8
@@ -119,6 +147,15 @@ cad-review:
         prompt-fragment: >-
           审核消防设施图元、图层和文字线索是否存在明显缺失或冲突。
           当前 demo 只做证据链识别，不做完整专业合规判定。
+        required-evidence: [消火栓设施, 喷淋系统线索, 报警系统线索, 消防水池, 消防水泵房]
+        search-hints:
+          keywords: [消防, 消火栓, 喷淋, 报警, 烟感, 温感, 手报, 消防水池, 消防水泵房]
+          layers: [EQUIP_消防, EQUIP_消火栓, SPACE, PUB_TEXT]
+          entity-types: [TEXT, MTEXT, INSERT]
+        repair-policy:
+          enabled: true
+          max-chunks: 40
+          preferred-chunk-types: [texts, entities, blocks]
         version: "2026-demo"
       - id: R-RD-001
         clause-id: GB50187-2012-6.4.2
@@ -128,6 +165,15 @@ cad-review:
           审核厂区内主要道路宽度是否存在可追溯证据。依据 GB 50187-2012 第 6.4.2 条，
           厂区内主要道路宽度不应小于 4m。优先引用道路图层、DIMENSION/PUB_DIM 尺寸标注和文字说明；
           只有在证据明确显示宽度小于 4m 时输出 FAIL，明确满足时输出 PASS；无法确认宽度时输出 PENDING_REVIEW。
+        required-evidence: [道路边线, 道路宽度尺寸, 道路名称或类型]
+        search-hints:
+          keywords: [道路, 内部道路, 车道, 消防车道, 宽, 净宽, 4m]
+          layers: [内部道路, ROAD, PUB_DIM, PUB_TEXT]
+          entity-types: [TEXT, MTEXT, DIMENSION, LINE, LWPOLYLINE]
+        repair-policy:
+          enabled: true
+          max-chunks: 40
+          preferred-chunk-types: [dimensions, texts, entities]
         version: "seed-2025-v1"
       - id: R-RD-002
         clause-id: GB50187-2012-6.4.2
@@ -137,6 +183,15 @@ cad-review:
           审核厂区道路转弯半径是否存在可追溯证据。依据 GB 50187-2012 第 6.4.2 条，
           道路转弯半径不应小于 6m。优先引用 ARC 圆弧、半径尺寸、R= 文本和道路转角实体；
           只有在证据明确显示半径小于 6m 时输出 FAIL，明确满足时输出 PASS；无法确认半径时输出 PENDING_REVIEW。
+        required-evidence: [道路转弯半径标注, ARC圆弧, R=文本]
+        search-hints:
+          keywords: [道路, 转弯半径, 半径, R=, R, 6m]
+          layers: [内部道路, ROAD, PUB_DIM, PUB_TEXT]
+          entity-types: [TEXT, MTEXT, DIMENSION, ARC, LWPOLYLINE]
+        repair-policy:
+          enabled: true
+          max-chunks: 40
+          preferred-chunk-types: [dimensions, texts, entities]
         version: "seed-2025-v1"
       - id: R-PRK-001
         clause-id: NNZRZY-2015-GUIDE-12
@@ -146,6 +201,15 @@ cad-review:
           审核工业厂房机动车停车配建数量。依据南宁市建筑工程规划指引第十二条，
           每 100 平方米建筑面积不少于 0.5 个机动车车位。优先引用指标表、车位统计文字和车位图元数量；
           若缺少建筑面积或机动车车位总数，输出 PENDING_REVIEW，不得凭零散车位线推断最终结论。
+        required-evidence: [建筑面积, 机动车停车位总数]
+        search-hints:
+          keywords: [建筑面积, 机动车停车位, 停车位, 车位, 个]
+          layers: [PUB_TEXT, PARKING, 车位, 停车]
+          entity-types: [TEXT, MTEXT, INSERT, LWPOLYLINE]
+        repair-policy:
+          enabled: true
+          max-chunks: 40
+          preferred-chunk-types: [texts, indicator_rows, entities]
         version: "seed-2025-v1"
       - id: R-PRK-002
         clause-id: JGJ100-2015-4.1.3
@@ -154,6 +218,15 @@ cad-review:
         prompt-fragment: >-
           审核无障碍停车位数量。依据 JGJ 100-2015 第 4.1.3 条，无障碍停车位数量不应少于停车总数的 2%，
           且不应少于 1 个。优先引用“无障碍”文字、车位统计表和车位标识；缺少无障碍车位数或停车总数时输出 PENDING_REVIEW。
+        required-evidence: [机动车停车位总数, 无障碍机动车停车位数量]
+        search-hints:
+          keywords: [无障碍, 机动车停车位, 停车位, 普通机动车停车位, 个]
+          layers: [PUB_TEXT, PARKING, 车位, 停车]
+          entity-types: [TEXT, MTEXT, INSERT, LWPOLYLINE]
+        repair-policy:
+          enabled: true
+          max-chunks: 40
+          preferred-chunk-types: [texts, indicator_rows, entities]
         version: "seed-2025-v1"
       - id: R-PRK-003
         clause-id: NNZRZY-2015-GUIDE-12
@@ -163,6 +236,15 @@ cad-review:
           审核工业厂房非机动车停车配建数量。依据南宁市建筑工程规划指引第十二条，
           每 100 平方米建筑面积不少于 1.0 个非机动车车位。优先引用指标表、非机动车停车区文字和数量统计；
           缺少建筑面积或非机动车车位总数时输出 PENDING_REVIEW。
+        required-evidence: [建筑面积, 非机动车停车位总数, 非机动车停车区]
+        search-hints:
+          keywords: [非机动车, 自行车, 停车, 车位, 建筑面积]
+          layers: [PUB_TEXT, PARKING, 车位, 停车]
+          entity-types: [TEXT, MTEXT, INSERT, LWPOLYLINE]
+        repair-policy:
+          enabled: true
+          max-chunks: 40
+          preferred-chunk-types: [texts, indicator_rows, entities]
         version: "seed-2025-v1"
       - id: R-VRT-001
         clause-id: NNZRZY-2018-SUPPL-6

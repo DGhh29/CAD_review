@@ -19,6 +19,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
@@ -44,6 +45,7 @@ public class AgentOrchestrator {
     private final SummarizerAgent summarizerAgent;
     private final IrViewService irViewService;
     private final TaskContextBuilder taskContextBuilder;
+    private final EvidenceRepairService evidenceRepairService;
     private final AgentProperties agentProperties;
     private final Executor reviewerTaskExecutor;
     private final ObjectMapper objectMapper;
@@ -55,6 +57,7 @@ public class AgentOrchestrator {
             SummarizerAgent summarizerAgent,
             IrViewService irViewService,
             TaskContextBuilder taskContextBuilder,
+            EvidenceRepairService evidenceRepairService,
             AgentProperties agentProperties,
             @Qualifier("reviewerTaskExecutor") Executor reviewerTaskExecutor,
             ObjectMapper objectMapper) {
@@ -64,6 +67,7 @@ public class AgentOrchestrator {
         this.summarizerAgent = summarizerAgent;
         this.irViewService = irViewService;
         this.taskContextBuilder = taskContextBuilder;
+        this.evidenceRepairService = evidenceRepairService;
         this.agentProperties = agentProperties;
         this.reviewerTaskExecutor = reviewerTaskExecutor;
         this.objectMapper = objectMapper;
@@ -115,6 +119,15 @@ public class AgentOrchestrator {
             List<ReviewRule> rules,
             long deadline,
             DispatchLoopObserver observer) {
+        return runDispatchLoop(null, drawingIr, rules, deadline, observer);
+    }
+
+    public DispatchLoopResult runDispatchLoop(
+            String runId,
+            JsonNode drawingIr,
+            List<ReviewRule> rules,
+            long deadline,
+            DispatchLoopObserver observer) {
         JsonNode summary = irViewService.buildSummary(drawingIr);
         DispatchLoopState state = new DispatchLoopState();
         DispatchLoopObserver loopObserver = observer == null ? DispatchLoopObserver.noop() : observer;
@@ -146,7 +159,14 @@ public class AgentOrchestrator {
             }
             loopObserver.onDispatched(plan.executableTasks());
             loopObserver.onRunning(plan.executableTasks());
-            ReviewRunResult reviewRunResult = reviewTasks(plan.executableTasks(), rules, drawingIr, deadline);
+            ReviewRunResult reviewRunResult = reviewTasks(
+                    runId,
+                    plan.executableTasks(),
+                    rules,
+                    drawingIr,
+                    deadline,
+                    loopObserver,
+                    state.repairAttemptedKeys);
             state.findings.addAll(reviewRunResult.findings());
             state.succeededTasks.addAll(reviewRunResult.succeededTasks());
             state.failedTasks.addAll(reviewRunResult.failedTasks());
@@ -235,8 +255,30 @@ public class AgentOrchestrator {
      * 保证即使所有 Reviewer 都跑满，Summarizer 仍有窗口完成汇总。
      */
     public ReviewRunResult reviewTasks(List<ReviewTask> tasks, List<ReviewRule> rules, JsonNode drawingIr, long deadline) {
+        return reviewTasks(null, tasks, rules, drawingIr, deadline, DispatchLoopObserver.noop());
+    }
+
+    public ReviewRunResult reviewTasks(
+            String runId,
+            List<ReviewTask> tasks,
+            List<ReviewRule> rules,
+            JsonNode drawingIr,
+            long deadline,
+            DispatchLoopObserver observer) {
+        return reviewTasks(runId, tasks, rules, drawingIr, deadline, observer, new LinkedHashSet<>());
+    }
+
+    private ReviewRunResult reviewTasks(
+            String runId,
+            List<ReviewTask> tasks,
+            List<ReviewRule> rules,
+            JsonNode drawingIr,
+            long deadline,
+            DispatchLoopObserver observer,
+            Set<String> repairAttemptedKeys) {
         Map<String, ReviewRule> ruleMap = agentProperties.ruleMap(rules);
         Map<ReviewTask, CompletableFuture<List<Finding>>> futures = new LinkedHashMap<>();
+        Map<ReviewTask, List<Finding>> findingsByTask = new LinkedHashMap<>();
         List<ReviewTask> failedTasks = new ArrayList<>();
         Map<String, String> failedReasons = new LinkedHashMap<>();
         for (ReviewTask task : tasks) {
@@ -277,6 +319,9 @@ public class AgentOrchestrator {
                 List<Finding> taskFindings = future.get(timeoutMs, TimeUnit.MILLISECONDS);
                 if (taskFindings != null) {
                     findings.addAll(taskFindings);
+                    findingsByTask.put(task, new ArrayList<>(taskFindings));
+                } else {
+                    findingsByTask.put(task, new ArrayList<>());
                 }
                 succeededTasks.add(task);
             } catch (InterruptedException ex) {
@@ -292,7 +337,126 @@ public class AgentOrchestrator {
                 log.warn("Reviewer task {} failed: {}", task.getTaskId(), reason);
             }
         }
-        return new ReviewRunResult(findings, succeededTasks, failedTasks, failedReasons);
+        RepairReviewResult repaired = repairAndRerunPendingTasks(
+                runId,
+                findingsByTask,
+                ruleMap,
+                drawingIr,
+                deadline,
+                observer == null ? DispatchLoopObserver.noop() : observer,
+                repairAttemptedKeys == null ? new LinkedHashSet<>() : repairAttemptedKeys);
+        return new ReviewRunResult(repaired.findings(), succeededTasks, failedTasks, failedReasons);
+    }
+
+    private RepairReviewResult repairAndRerunPendingTasks(
+            String runId,
+            Map<ReviewTask, List<Finding>> findingsByTask,
+            Map<String, ReviewRule> ruleMap,
+            JsonNode drawingIr,
+            long deadline,
+            DispatchLoopObserver observer,
+            Set<String> repairAttemptedKeys) {
+        if (!agentProperties.getEvidenceRepair().isEnabled() || findingsByTask.isEmpty()) {
+            return flatten(findingsByTask);
+        }
+        int repairedCount = 0;
+        int maxRepairTasks = Math.max(0, agentProperties.getEvidenceRepair().getMaxRepairTasksPerRun());
+        for (Map.Entry<ReviewTask, List<Finding>> entry : findingsByTask.entrySet()) {
+            if (maxRepairTasks > 0 && repairedCount >= maxRepairTasks) {
+                break;
+            }
+            ReviewTask task = entry.getKey();
+            List<Finding> taskFindings = entry.getValue();
+            String repairKey = taskCoverageKey(task);
+            if (!hasPendingFinding(taskFindings) || repairAttemptedKeys.contains(repairKey) || !hasRepairBudget(deadline)) {
+                continue;
+            }
+            List<ReviewRule> taskRules;
+            try {
+                taskRules = resolveTaskRules(task, ruleMap);
+            } catch (Exception ex) {
+                log.warn("Skip evidence repair for task {}: {}", task.getTaskId(), readableThrowable(ex));
+                continue;
+            }
+            repairAttemptedKeys.add(repairKey);
+            observer.onRepairStarted(task);
+            EvidenceRepairResult repair = evidenceRepairService.repair(runId, drawingIr, task, taskRules, taskFindings, 1);
+            if (!repair.hasUsefulEvidence()) {
+                observer.onRepairFinished(task, repair, false);
+                continue;
+            }
+            try {
+                JsonNode repairedContext = taskContextBuilder.buildWithEvidencePack(
+                        drawingIr,
+                        task,
+                        taskRules,
+                        repair.getEvidencePack());
+                List<Finding> rerunFindings = rerunReviewerWithTimeout(task, repairedContext, taskRules, deadline);
+                if (rerunFindings != null && !rerunFindings.isEmpty()) {
+                    findingsByTask.put(task, new ArrayList<>(rerunFindings));
+                    repairedCount++;
+                    observer.onRepairFinished(task, repair, true);
+                    log.info("Evidence repair reran reviewer for task {} with {} evidence items",
+                            task.getTaskId(),
+                            repair.getEvidencePack().getFoundEvidence() == null ? 0 : repair.getEvidencePack().getFoundEvidence().size());
+                } else {
+                    observer.onRepairFinished(task, repair, false);
+                }
+            } catch (Exception ex) {
+                observer.onRepairFinished(task, repair, false);
+                log.warn("Evidence repair rerun failed for task {}: {}", task.getTaskId(), readableThrowable(ex));
+            }
+        }
+        return flatten(findingsByTask);
+    }
+
+    private List<Finding> rerunReviewerWithTimeout(
+            ReviewTask task,
+            JsonNode repairedContext,
+            List<ReviewRule> taskRules,
+            long deadline) throws Exception {
+        long remainingMs = deadline - System.currentTimeMillis()
+                - TimeUnit.SECONDS.toMillis(agentProperties.getSummarizer().getReserveSeconds());
+        long timeoutMs = Math.min(
+                TimeUnit.SECONDS.toMillis(agentProperties.getReviewer().getTimeoutSeconds()),
+                remainingMs);
+        if (timeoutMs < 1000) {
+            throw new TimeoutException("Reviewer rerun timeout budget is too small");
+        }
+        CompletableFuture<List<Finding>> future = CompletableFuture.supplyAsync(
+                () -> reviewerAgent.review(task, repairedContext, taskRules),
+                reviewerTaskExecutor);
+        try {
+            return future.get(timeoutMs, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException ex) {
+            future.cancel(true);
+            throw ex;
+        }
+    }
+
+    private boolean hasRepairBudget(long deadline) {
+        long remainingMs = deadline - System.currentTimeMillis()
+                - TimeUnit.SECONDS.toMillis(agentProperties.getSummarizer().getReserveSeconds());
+        long minimumRepairMs = Math.min(
+                TimeUnit.SECONDS.toMillis(agentProperties.getReviewer().getTimeoutSeconds()),
+                TimeUnit.SECONDS.toMillis(30));
+        return remainingMs > minimumRepairMs;
+    }
+
+    private boolean hasPendingFinding(List<Finding> findings) {
+        return findings != null && findings.stream()
+                .anyMatch(finding -> finding.getVerdict() == com.luckycat.cadreview.dto.enums.Verdict.PENDING_REVIEW
+                        && !Boolean.FALSE.equals(finding.getRepairable()));
+    }
+
+    private RepairReviewResult flatten(Map<ReviewTask, List<Finding>> findingsByTask) {
+        List<Finding> findings = new ArrayList<>();
+        for (List<Finding> taskFindings : findingsByTask.values()) {
+            if (taskFindings != null) {
+                findings.addAll(taskFindings);
+            }
+        }
+        return new RepairReviewResult(findings);
     }
 
     /**
@@ -471,10 +635,19 @@ public class AgentOrchestrator {
         default void onSkipped(List<ReviewTask> tasks) {
         }
 
+        default void onRepairStarted(ReviewTask task) {
+        }
+
+        default void onRepairFinished(ReviewTask task, EvidenceRepairResult repairResult, boolean rerunSucceeded) {
+        }
+
         static DispatchLoopObserver noop() {
             return new DispatchLoopObserver() {
             };
         }
+    }
+
+    private record RepairReviewResult(List<Finding> findings) {
     }
 
     private static class DispatchLoopState {
@@ -482,6 +655,7 @@ public class AgentOrchestrator {
         private final List<ReviewTask> succeededTasks = new ArrayList<>();
         private final List<ReviewTask> failedTasks = new ArrayList<>();
         private final List<ReviewTask> skippedTasks = new ArrayList<>();
+        private final Set<String> repairAttemptedKeys = new LinkedHashSet<>();
         private String reason;
         private String lastDispatcherReason;
 
@@ -492,6 +666,7 @@ public class AgentOrchestrator {
             node.set("succeededTasks", objectMapper.valueToTree(succeededTasks));
             node.set("failedTasks", objectMapper.valueToTree(failedTasks));
             node.set("skippedTasks", objectMapper.valueToTree(skippedTasks));
+            node.set("repairAttemptedKeys", objectMapper.valueToTree(repairAttemptedKeys));
             node.put("lastDispatcherReason", lastDispatcherReason);
             return node;
         }

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.luckycat.cadreview.dto.ReviewRule;
 import com.luckycat.cadreview.dto.ReviewTask;
+import com.luckycat.cadreview.metrics.CadGeometryMetricsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -26,8 +27,24 @@ public class TaskContextBuilder {
     private final CadIrCleaner cadIrCleaner;
     private final IrViewService irViewService;
     private final PreCleanerAgent preCleanerAgent;
+    private final CadGeometryMetricsService cadGeometryMetricsService;
 
     public JsonNode build(JsonNode drawingIr, ReviewTask task, List<ReviewRule> rules) {
+        return preCleanerAgent.cleanForTask(task.getTaskId(), buildBaseContext(drawingIr, task, rules));
+    }
+
+    public JsonNode buildWithEvidencePack(JsonNode drawingIr, ReviewTask task, List<ReviewRule> rules, TaskEvidencePack evidencePack) {
+        ObjectNode context = buildBaseContext(drawingIr, task, rules);
+        context.set("evidencePack", objectMapper.valueToTree(evidencePack));
+        ObjectNode repairQuality = objectMapper.createObjectNode();
+        repairQuality.put("repairAttempted", true);
+        repairQuality.put("repairStatus", evidencePack.getQuality() == null ? "UNKNOWN" : evidencePack.getQuality().getRepairStatus());
+        repairQuality.put("repairEvidenceCount", evidencePack.getFoundEvidence() == null ? 0 : evidencePack.getFoundEvidence().size());
+        context.set("evidenceRepair", repairQuality);
+        return preCleanerAgent.cleanForTask(task.getTaskId(), context);
+    }
+
+    private ObjectNode buildBaseContext(JsonNode drawingIr, ReviewTask task, List<ReviewRule> rules) {
         JsonNode reviewContext = cadIrCleaner.buildReviewContext(drawingIr);
         JsonNode slicedIr = irViewService.slice(drawingIr, task.getEntityIds(), task.getLayerNames());
         ObjectNode context = objectMapper.createObjectNode();
@@ -39,9 +56,30 @@ public class TaskContextBuilder {
         context.set("clean_texts", reviewContext.path("clean_texts").deepCopy());
         context.set("clean_dimensions", reviewContext.path("clean_dimensions").deepCopy());
         context.set("indicator_rows", selectIndicatorRows(reviewContext.path("indicator_rows"), task, rules));
+        context.set("computed_metrics", objectMapper.valueToTree(
+                cadGeometryMetricsService.calculateForTask(metricIr(slicedIr), task, rules)));
         context.set("selected_ir", slicedIr);
         context.put("context_policy", task.getContextPolicy());
-        return preCleanerAgent.cleanForTask(task.getTaskId(), context);
+        return context;
+    }
+
+    private ObjectNode metricIr(JsonNode slicedIr) {
+        ObjectNode metricIr = objectMapper.createObjectNode();
+        metricIr.set("entities", slicedIr.path("selectedEntities").deepCopy());
+        metricIr.set("texts", slicedIr.path("selectedTexts").deepCopy());
+        metricIr.set("dimensions", slicedIr.path("selectedDimensions").deepCopy());
+        metricIr.set("layers", slicedIr.path("selectedLayers").deepCopy());
+        copyIfPresent(metricIr, slicedIr, "summary");
+        copyIfPresent(metricIr, slicedIr, "statistics");
+        copyIfPresent(metricIr, slicedIr, "semantic");
+        return metricIr;
+    }
+
+    private void copyIfPresent(ObjectNode target, JsonNode source, String fieldName) {
+        JsonNode value = source.get(fieldName);
+        if (value != null && !value.isNull()) {
+            target.set(fieldName, value.deepCopy());
+        }
     }
 
     private ObjectNode drawingBrief(JsonNode reviewContext, JsonNode drawingIr) {

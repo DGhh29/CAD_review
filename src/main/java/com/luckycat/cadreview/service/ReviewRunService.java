@@ -140,6 +140,10 @@ public class ReviewRunService {
         return repository.findSummary(runId);
     }
 
+    public List<ReviewRunSummary> listSummaries(int limit) {
+        return repository.listSummaries(limit);
+    }
+
     public Optional<ReviewReport> getReport(String runId) {
         return repository.findReport(runId);
     }
@@ -163,6 +167,7 @@ public class ReviewRunService {
 
             repository.updateStatus(runId, ReviewRunStatus.REVIEWING, null);
             AgentOrchestrator.DispatchLoopResult loopResult = agentOrchestrator.runDispatchLoop(
+                    runId,
                     drawingIr,
                     rules,
                     deadline,
@@ -236,6 +241,23 @@ public class ReviewRunService {
         @Override
         public void onSkipped(List<ReviewTask> tasks) {
             tasks.forEach(task -> repository.upsertTask(runId, task, ReviewTaskStatus.SKIPPED, "任务数量超过上限"));
+        }
+
+        @Override
+        public void onRepairStarted(ReviewTask task) {
+            repository.upsertTask(runId, task, ReviewTaskStatus.REPAIRING, "PENDING_REVIEW 触发 raw_ir 定向补证");
+        }
+
+        @Override
+        public void onRepairFinished(ReviewTask task, com.luckycat.cadreview.agent.EvidenceRepairResult repairResult, boolean rerunSucceeded) {
+            String reason = repairResult == null
+                    ? "补证流程未返回结果"
+                    : repairResult.getStatus() + ": " + repairResult.getReason();
+            repository.upsertTask(
+                    runId,
+                    task,
+                    rerunSucceeded ? ReviewTaskStatus.SUCCEEDED : ReviewTaskStatus.REPAIRING,
+                    rerunSucceeded ? "补证并定向复审完成: " + reason : "补证未形成有效复审: " + reason);
         }
     }
 

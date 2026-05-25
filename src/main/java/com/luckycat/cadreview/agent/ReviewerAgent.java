@@ -176,6 +176,12 @@ public class ReviewerAgent {
             // 没填图层时继承 task 的图层范围，至少能定位到大致区域
             finding.setLayerNames(new ArrayList<>(task.getLayerNames() == null ? List.of() : task.getLayerNames()));
         }
+        if (finding.getMissingEvidence() == null) {
+            finding.setMissingEvidence(new ArrayList<>());
+        }
+        if (finding.getRepairHints() == null) {
+            finding.setRepairHints(new ArrayList<>());
+        }
         if (isBlank(finding.getSource())) {
             finding.setSource("REVIEWER_AGENT");
         }

@@ -28,7 +28,8 @@ public class ContextBudgetService {
     private static final List<String> HIGH_VALUE_FIELDS = List.of(
             "drawing", "quality", "drawing_brief", "summary", "statistics", "semantic",
             "rules", "task", "findings", "conflicts", "coverage", "evidence_groups",
-            "clean_texts", "clean_dimensions", "indicator_rows", "selectedTexts", "selectedDimensions"
+            "clean_texts", "clean_dimensions", "indicator_rows", "computed_metrics",
+            "evidencePack", "evidenceRepair", "selectedTexts", "selectedDimensions"
     );
 
     private final ObjectMapper objectMapper;
@@ -103,7 +104,7 @@ public class ContextBudgetService {
         if (role == AgentRole.DISPATCHER || role == AgentRole.REGULATION_PLANNER) {
             return config.getDispatcherMaxChars();
         }
-        if (role == AgentRole.PRE_CLEANER) {
+        if (role == AgentRole.PRE_CLEANER || role == AgentRole.EVIDENCE_EXTRACTOR) {
             return config.getPreCleanerMaxChars();
         }
         if (role == AgentRole.REVIEWER) {

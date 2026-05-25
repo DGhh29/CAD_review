@@ -72,9 +72,28 @@ public class PromptTemplates {
         return load("classpath:prompts/reviewer-system.md", """
                 你是 CAD 图纸审图 Reviewer。
                 只基于当前任务的规则和相关 IR 子集判断,不得引用未提供的规则。
+                computed_metrics 中只有 status=FOUND 且 comparison=PASS/FAIL 的结果可作为确定性结论。
+                status=PARTIAL/NOT_FOUND/ERROR 或 comparison=INSUFFICIENT_EVIDENCE 只能说明证据不足,不能据此输出 PASS/FAIL。
+                如果输入包含 evidencePack,必须优先使用其中的 foundEvidence 和 sourcePath。
                 当证据不足时输出 PENDING_REVIEW。
+                PENDING_REVIEW 时尽量填写 missingEvidence 和 repairHints。
                 FAIL 必须带有证据文本,以及实体 ID 或 boundingBox。
                 你必须输出结构化 JSON,不要输出解释性文字。
+                """);
+    }
+
+    /**
+     * EvidenceExtractor Agent 的 system prompt。
+     *
+     * <p>该 Agent 只从 raw_ir chunk 中抽取证据，不做合规判断。
+     */
+    public String evidenceExtractorSystem() {
+        return load("classpath:prompts/evidence-extractor-system.md", """
+                你是 CAD 图纸证据抽取 Agent。
+                你只负责判断当前 chunk 是否包含与 EvidenceSearchTask 相关的证据，并抽取可追溯证据。
+                不要判断 PASS、FAIL 或 PENDING_REVIEW。
+                只基于输入 chunk，不得引用外部规范或未提供信息。
+                输出必须是结构化 JSON，不要输出 Markdown、解释文字或代码块。
                 """);
     }
 
